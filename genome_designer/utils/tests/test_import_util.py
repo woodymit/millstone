@@ -17,6 +17,7 @@ from main.models import Project
 from main.models import ReferenceGenome
 from main.models import Variant
 from main.models import VariantSet
+from main.model_utils import get_dataset_with_type
 from main.testing_util import create_common_entities
 from utils.import_util import DataImportError
 from utils.import_util import create_sample_models_for_eventual_upload
@@ -33,6 +34,13 @@ TEST_EMAIL = 'gmcdev@genomedesigner.freelogy.org'
 TEST_DATA_ROOT = os.path.join(settings.PWD, 'test_data')
 IMPORT_UTIL_TEST_DATA = os.path.join(TEST_DATA_ROOT, 'import_util_test_data')
 
+TARGETS_TEMPLATE_FILEPATH = os.path.join(settings.PWD, 'main',
+        'templates', 'sample_list_targets_template.tsv')
+TARGETS_TEMPLATE_FILEPATH_GZIP = os.path.join(settings.PWD, 'test_data',
+        'import_util_test_data', 'sample_list_browser_upload_test_data_zipped.tsv')
+
+NUM_SAMPLES_IN_TEMPLATE = 10
+NUM_SAMPLES_IN_TEMPLATE_GZIP = 4
 
 class TestImportReferenceGenome(TestCase):
     """Tests importing a ReferenceGenome.
@@ -81,7 +89,7 @@ class TestImportRefGenomeFromEntrez(TestCase):
         TEST_RECORD_LABEL = "testRecord"
         if internet_on():
             import_reference_genome_from_ncbi(
-                    self.test_project, TEST_RECORD_LABEL, TEST_RECORD_ID, 
+                    self.test_project, TEST_RECORD_LABEL, TEST_RECORD_ID,
                     'genbank')
 
 
@@ -96,14 +104,10 @@ class TestImportSamplesFromTargetsFile(TestCase):
         self.project = Project.objects.create(owner=user.get_profile(),
                 title='Test Project')
 
-    def test_import_samples(self):
+    def test_import_samples(self, template_filepath=TARGETS_TEMPLATE_FILEPATH,
+            samples_in_template=NUM_SAMPLES_IN_TEMPLATE):
         """Tests importing samples from a template file.
         """
-        TARGETS_TEMPLATE_FILEPATH = os.path.join(settings.PWD, 'main',
-                'templates', 'sample_list_targets_template.tsv')
-
-        NUM_SAMPLES_IN_TEMPLATE = 10
-
         # This test is written assuming there are no other ExperimentSamples,
         # perhaps introduced in setUp(). Check that assumption here.
         num_experiment_samples_before = len(ExperimentSample.objects.all())
@@ -112,7 +116,7 @@ class TestImportSamplesFromTargetsFile(TestCase):
         self.assertEqual(0, num_datasets_before)
 
         # Perform the import.
-        with open(TARGETS_TEMPLATE_FILEPATH) as targets_file_fh:
+        with open(template_filepath) as targets_file_fh:
             import_samples_from_targets_file(self.project,
                     UploadedFile(targets_file_fh))
 
@@ -121,9 +125,9 @@ class TestImportSamplesFromTargetsFile(TestCase):
         num_datasets_after = len(Dataset.objects.all())
 
         # Make sure the right amount of models were added.
-        self.assertEqual(NUM_SAMPLES_IN_TEMPLATE, num_experiment_samples_after)
+        self.assertEqual(samples_in_template, num_experiment_samples_after)
         # num_datasets: 2 * fastq plus 2 * fastqc = 4 * num_samples
-        self.assertEqual(4 * NUM_SAMPLES_IN_TEMPLATE, num_datasets_after)
+        self.assertEqual(4 * samples_in_template, num_datasets_after)
 
         # Make sure all have READY status.
         observed_status_type_set = set([
@@ -140,6 +144,27 @@ class TestImportSamplesFromTargetsFile(TestCase):
             self.assertNotEqual(fwd_reads_dataset.filesystem_location,
                     rev_reads_dataset.filesystem_location,
                     "Must have different filesystem locations.")
+
+            # Check FASTQC dataset.
+            fastqc_dataset_read1 = get_dataset_with_type(sample,
+                Dataset.TYPE.FASTQC1_HTML).get_absolute_location()
+            fastqc_dataset_read2 = get_dataset_with_type(sample,
+                Dataset.TYPE.FASTQC2_HTML).get_absolute_location()
+
+            self.assertTrue(
+                    os.path.exists(fastqc_dataset_read1))
+            self.assertTrue(
+                    os.path.exists(fastqc_dataset_read2))
+
+
+    def test_import_samples_gzip(self):
+        """
+        Test import of actual samples (including FASTQC) including
+        checking of FASTQC data.
+        """
+        self.test_import_samples(
+                template_filepath=TARGETS_TEMPLATE_FILEPATH_GZIP,
+                samples_in_template=NUM_SAMPLES_IN_TEMPLATE_GZIP)
 
     def test_import_samples__no_extra_cols(self):
         """Tests importing samples from a template file that doesn't have

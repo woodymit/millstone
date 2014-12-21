@@ -173,7 +173,7 @@ def import_reference_genome_from_local_file(project, label, file_location,
 def add_chromosomes(reference_genome, dataset):
     """ Makes a Chromosome for each unique SeqRecord.name in the dataset
     """
-    
+
     chromosomes = [chrom.label for chrom \
             in Chromosome.objects.filter(reference_genome=reference_genome)]
 
@@ -189,7 +189,7 @@ def add_chromosomes(reference_genome, dataset):
     if dataset.TYPE.REFERENCE_GENOME_FASTA:
         _make_chromosome(SeqIO.parse(dataset_path, "fasta"))
     elif dataset.TYPE.REFERENCE_GENOME_GENBANK:
-        _make_chromosome(SeqIO.parse(dataset_path, "genbank"))     
+        _make_chromosome(SeqIO.parse(dataset_path, "genbank"))
     else:
         raise AssertionError("Unexpected Dataset type")
 
@@ -369,7 +369,8 @@ def import_samples_from_targets_file(project, targets_file):
             if field in (SAMPLE_SERVER_COPY_KEY__READ_1,
                     SAMPLE_SERVER_COPY_KEY__READ_2):
                 updated_value = value.replace('$GD_ROOT', settings.PWD)
-                with open(updated_value, 'rb') as test_file:
+                updated_path = os.path.abspath(updated_value)
+                with open(updated_path, 'rb') as test_file:
                     try:
                         test_file.read(8)
                     except:
@@ -515,7 +516,14 @@ def run_fastqc_on_sample_fastq(experiment_sample, fastq_dataset, rev=False):
     linked to a new FASTQC dataset object, which is returned.
     """
     fastq_filename = fastq_dataset.get_absolute_location()
-    fastqc_filename = fastq_filename + '_fastqc.html'
+
+    # fastqc removes the .gz from the fastq file internally,
+    # so check for this.
+    if fastq_dataset.is_compressed():
+        nogz_filename = os.path.splitext(fastq_filename)[0]
+        fastqc_filename = nogz_filename + '_fastqc.html'
+    else:
+        fastqc_filename = fastq_filename + '_fastqc.html'
 
     if rev:
         dataset_type = Dataset.TYPE.FASTQC2_HTML
