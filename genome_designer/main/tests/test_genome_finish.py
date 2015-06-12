@@ -1,7 +1,7 @@
 """
 Tests for genome finishing features
 """
-
+from Bio import SeqIO
 import os
 
 from django.conf import settings
@@ -11,6 +11,7 @@ from django.http.request import HttpRequest
 from django.test import Client
 from django.test import TestCase
 
+from genome_finish.insertion_placement import place_contig
 from genome_finish.millstone_de_novo_fns import get_match_counts
 from main.model_utils import get_dataset_with_type
 from main.models import AlignmentGroup
@@ -51,6 +52,12 @@ INS_1KB_FQ_2_PATH = os.path.join(
 INS_1KB_INSERTION_SEQUENCE_PATH = os.path.join(
         settings.PWD,
         'test_data/genome_finish_test/ins_1kb_insertion.fa')
+INS_1KB_CONTIG_FASTA_PATH = os.path.join(
+        settings.PWD,
+        'test_data/genome_finish_test/ins_1kb_contig.fa')
+INS_1KB_TRANSFORMED_FASTA_PATH = os.path.join(
+        settings.PWD,
+        'test_data/genome_finish_test/ins_1kb_transformed.fa')
 INSERTION_LENGTH = 1000
 
 
@@ -243,3 +250,43 @@ class TestContigAssembly(TestCase):
                 'The maximum fraction of the insertion captured by any ' +
                 'contig was: %.3f, less than the passing cutoff: %.3f ' % (
                         max_cov_fraction, INSERTION_COVERAGE_CUTOFF))
+
+
+class TestContigPlacement(TestCase):
+
+    def setUp(self):
+        # Useful models.
+        self.user = User.objects.create_user(
+            TEST_USERNAME, password=TEST_PASSWORD, email=TEST_EMAIL)
+        self.project = Project.objects.create(
+            owner=self.user.get_profile(), title='Test Project')
+
+        # Fake web browser client used to make requests.
+        self.client = Client()
+        self.client.login(username=TEST_USERNAME, password=TEST_PASSWORD)
+
+    def test_1kb_insertion_placement(self):
+        new_reference_genome_label = 'insertion_incorporated'
+
+        reference_genome = import_reference_genome_from_local_file(
+                self.project, 'test_ref',
+                INS_1KB_REF_GENOME_PATH, 'fasta')
+
+        with open(INS_1KB_CONTIG_FASTA_PATH, 'r') as fh:
+            contig_seqrecord = SeqIO.parse(fh, 'fasta').next()
+
+        placed_contig_ref_genome = place_contig(reference_genome, contig_seqrecord,
+            new_reference_genome_label)
+
+        # Verify expected transformation
+        placed_contig_fasta = get_dataset_with_type(
+                placed_contig_ref_genome,
+                Dataset.TYPE.REFERENCE_GENOME_FASTA).get_absolute_location()
+
+        with open(placed_contig_fasta, 'r') as fh:
+            placed_contig_seqrecord = SeqIO.parse(fh, 'fasta').next()
+
+        with open(INS_1KB_TRANSFORMED_FASTA_PATH, 'r') as fh:
+            transformed_seqrecord = SeqIO.parse(fh, 'fasta').next()
+
+        self.assertEqual(str(placed_contig_seqrecord.seq), str(transformed_seqrecord.seq))
