@@ -6,8 +6,6 @@ import sys
 sys.path.append(
         os.path.join(os.path.dirname(os.path.realpath(__file__)), '../'))
 os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
-    
-from django.conf import settings
 
 from main.model_utils import get_dataset_with_type
 from main.models import Dataset
@@ -19,7 +17,8 @@ from pipeline.read_alignment import align_with_bwa_mem
 from utils import convert_seqrecord_to_fastq
 from utils.import_util import add_dataset_to_entity
 
-def find_insertion_region(reference_genome, contig_seqrecord):
+
+def align_contig_to_reference(reference_genome, contig_seqrecord):
     alignment_group = AlignmentGroup.objects.create(
             reference_genome=reference_genome,
             label='contig_alignment')
@@ -42,16 +41,22 @@ def find_insertion_region(reference_genome, contig_seqrecord):
             alignment_group=alignment_group,
             experiment_sample=contig_sample)
 
+    add_dataset_to_entity(
+            sample_to_alignment, 'contig_to_ref_bam', Dataset.TYPE.BWA_ALIGN)
+
     align_with_bwa_mem(
             alignment_group,
             sample_to_alignment,
             project=reference_genome.project)
 
-    alignment_bam_path = get_dataset_with_type(
+    contig_to_ref_bam = get_dataset_with_type(
             sample_to_alignment, Dataset.TYPE.BWA_ALIGN
                     ).get_absolute_location()
 
-    return alignment_bam_path
+    return contig_to_ref_bam_path
+
+def compute_insertion_location(contig_to_ref_bam):
+    
 
 
 def test():
@@ -73,7 +78,7 @@ def test():
 
 
 if __name__ == '__main__':
-    test()
+    print test()
 
 
 # def place_insertion(reference_genome, contig_reference_genomes,

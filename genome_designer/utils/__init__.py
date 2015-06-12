@@ -108,3 +108,10 @@ def convert_fasta_to_fastq(fa_path, fq_path):
         for record in SeqIO.parse(fasta, "fasta"):
             record.letter_annotations["phred_quality"] = [40] * len(record)
             SeqIO.write(record, fastq, "fastq")
+
+def convert_seqrecord_to_fastq(seqrecord, fq_path):  
+    """Generates a fasta file from a fastq file
+    """
+    with open(fq_path, "w") as fastq:
+        seqrecord.letter_annotations["phred_quality"] = [40] * len(seqrecord)
+        SeqIO.write(seqrecord, fastq, "fastq")
