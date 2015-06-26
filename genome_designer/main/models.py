@@ -650,6 +650,15 @@ class ReferenceGenome(UniqueUidModelMixin):
         mvm.drop()
 
 
+class Contig(ReferenceGenome):
+
+    # Reference genome which the insertion belongs to
+    parent_reference_genome = models.ForeignKey('ReferenceGenome')
+
+    # The sample alignment that provides evidence for the insertion
+    experiment_sample_to_alignment = models.ForeignKey('ExperimentSampleToAlignment')
+
+
 class ExperimentSample(UniqueUidModelMixin):
     """Model representing data for a particular experiment sample.
 

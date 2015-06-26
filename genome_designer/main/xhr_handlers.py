@@ -1183,11 +1183,19 @@ def generate_contigs(request):
     contig_ref_genome_label = '_'.join(
             [ref_label, sample_label, 'de_novo_contigs'])
 
-    # Create a reference genome for the contigs
+    # Create an insertion model for the contigs
     contig_ref_genome = ReferenceGenome.objects.create(
             project=reference_genome.project,
             label=contig_ref_genome_label)
     contig_ref_genome.metadata['is_from_de_novo_assembly'] = True
+
+    #     # Create an insertion model for the contigs
+    # contig_ref_genome = Insertion.objects.create(
+    #         project=reference_genome.project,
+    #         label=contig_ref_genome_label,
+    #         reference_genome=reference_genome,
+    #         experiment_sample_to_alignment=experiment_sample_to_alignment)
+    # #contig_ref_genome.metadata['is_from_de_novo_assembly'] = True
 
     # Generate a list of fasta file paths to the contigs
     contig_files = assembly.generate_contigs(
