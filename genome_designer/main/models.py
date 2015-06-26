@@ -653,7 +653,7 @@ class ReferenceGenome(UniqueUidModelMixin):
 class Contig(ReferenceGenome):
 
     # Reference genome which the insertion belongs to
-    parent_reference_genome = models.ForeignKey('ReferenceGenome')
+    parent_reference_genome = models.ForeignKey('ReferenceGenome', related_name='+')
 
     # The sample alignment that provides evidence for the insertion
     experiment_sample_to_alignment = models.ForeignKey('ExperimentSampleToAlignment')

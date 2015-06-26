@@ -228,7 +228,8 @@ gd.TabAnalyzeBaseView = Backbone.View.extend(
   SUBVIEW_TYPE_TO_VIEW_CLASS: {
       GENES: gd.TabAnalyzeSubviewGenes,
       SETS: gd.TabAnalyzeSubviewSets,
-      VARIANTS: gd.TabAnalyzeSubviewVariants
+      VARIANTS: gd.TabAnalyzeSubviewVariants,
+      CONTIGS: gd.TabAnalyzeSubviewContigs
   }
 }
 );
