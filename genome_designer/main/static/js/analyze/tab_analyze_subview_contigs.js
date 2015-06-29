@@ -26,8 +26,8 @@ gd.TabAnalyzeSubviewContigs = gd.TabAnalyzeSubviewAbstractBase.extend(
     console.log(this.model.attributes.project.uid)
 
     var requestData = {
-        projectUid: this.model.attributes.project.uid,
-        showDeNovo: this.showDeNovo ? 1 : 0
+        refGenomeUid: this.model.attributes.refGenomeUid,
+        alignmentGroupUid: this.model.attributes.alignmentGroupUid
     };
 
     this.datatableComponent = new gd.DataTableComponent({

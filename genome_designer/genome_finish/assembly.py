@@ -136,7 +136,6 @@ def generate_contigs(experiment_sample_to_alignment, contig_label_base):
 
             # Create an insertion model for the contig
             contig = Contig.objects.create(
-                    project=reference_genome.project,
                     label=contig_label,
                     parent_reference_genome=reference_genome,
                     experiment_sample_to_alignment=experiment_sample_to_alignment)

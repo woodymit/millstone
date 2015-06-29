@@ -1011,15 +1011,17 @@ def get_contigs(request):
     """Get list of Contigs for the provided Project uid.
     """
     # Parse the GET params.
-    project_uid = request.GET.get('projectUid')
+    ref_genome_uid = request.GET.get('refGenomeUid')
+    alignment_group_uid = request.GET.get('alignmentGroupUid')
 
-    # Lookup the model and verify the owner is the user
-    project = get_object_or_404(
-            Project,
-            owner=request.user.get_profile(),
-            uid=project_uid)
+    sample_to_align_query = ExperimentSampleToAlignment.objects.filter(
+            alignment_group__uid=alignment_group_uid)
 
-    filters = {'project': project}
+    filters = {
+            'parent_reference_genome': ReferenceGenome.objects.get(
+                    uid=ref_genome_uid),
+            'experiment_sample_to_alignment__in': sample_to_align_query
+    }
 
     response_data = adapt_model_to_frontend(Contig, filters)
 
