@@ -1214,12 +1214,12 @@ def generate_contigs(request):
     """
 
     # Retrieve ExperimentSampleToAlignment
-    experiment_sample_uid = request.GET.get('experimentSampleUid')
+    sample_alignment_uid = request.GET.get('sampleAlignmentUid')
     experiment_sample_to_alignment = get_object_or_404(
             ExperimentSampleToAlignment,
             alignment_group__reference_genome__project__owner=(
                     request.user.get_profile()),
-            uid=experiment_sample_uid)
+            uid=sample_alignment_uid)
 
     # Get reference genome
     reference_genome = (

@@ -7,8 +7,6 @@ gd.TabAnalyzeSubviewContigs = gd.TabAnalyzeSubviewAbstractBase.extend(
 {
   /** @override */
   initialize: function() {
-    console.log('HELLO')
-    this.showDeNovo = true;
     this.render();
   },
 
@@ -44,8 +42,6 @@ gd.TabAnalyzeSubviewContigs = gd.TabAnalyzeSubviewAbstractBase.extend(
       datatableComponent: this.datatableComponent,
       alignmentGroupUid: this.model.attributes.alignmentGroupUid
     });
-    console.log('this.datatableComponent:')
-    console.log(this.datatableComponent)
 
     this.listenTo(this.contigControlsComponent, 'MODELS_UPDATED',
         _.bind(this.redrawDatatable, this));

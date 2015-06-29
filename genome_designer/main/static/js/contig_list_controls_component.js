@@ -1,6 +1,6 @@
 /**
  * @fileoverview Component that decorates the controls for the list of
- *     ReferenceGenomes.
+ *     Contigs.
  */
 
 
@@ -51,8 +51,25 @@ gd.ContigControlsComponent = gd.DataTableControlsComponent.extend({
   /** Send request to generate contigs with default parameters **/
   handleAssembleContigs: function() {
     var requestData = this.prepareRequestData('gd-contig-assemble');
-    console.log('requestData:')
-    console.log(requestData)
+    sample_alignment_uid = requestData['sample_selector']
+
+    var postData = {
+        sampleAlignmentUid: sample_alignment_uid
+    };
+
+    this.enterLoadingState();
+
+    $.get('/_/alignments/generate_contigs', postData,
+        _.bind(this.handleGenerateContigsResponse, this));
+  },
+
+  handleGenerateContigsResponse: function(response) {
+    this.exitLoadingState();
+    this.trigger('MODELS_UPDATED');
+    $('.modal').modal('hide');
+    if (response.is_contig_file_empty == 1) {
+      alert('No evidence for structural variants in this alignment');
+    }
   },
 
   /** Parses the form files and prepares the data. */
@@ -103,52 +120,4 @@ gd.ContigControlsComponent = gd.DataTableControlsComponent.extend({
       this.trigger('MODELS_UPDATED');
     }
   },
-
-  handleConcatenate: function() {
-    var refGenomeUidList = this.datatableComponent.getCheckedRowUids();
-
-    // If nothing to do, show message.
-    if (!refGenomeUidList.length) {
-      alert('Please select reference genomes to concatenate.');
-      return;
-    }
-    // If only one selected, show message.
-    if (refGenomeUidList.length == 1) {
-      alert('Please select more than one reference genome to concatenate.');
-      return;
-    }
-
-    // Get new genome name
-    var newGenomeLabel = prompt(
-        'Enter a name for the concatenated genome:', 'new_genome_name');
-    while (newGenomeLabel == '') {
-      var newGenomeLabel = prompt(
-          'Please enter a non-zero length name for the concatenated genome',
-          'new_genome_name');
-    }
-    if (newGenomeLabel == null) {
-      return;
-    }
-
-    this.enterLoadingState();
-
-    var postData = {
-        'newGenomeLabel': newGenomeLabel,
-        'refGenomeUidList': refGenomeUidList,
-    };
-
-    $.post('/_/ref_genomes/concatenate', {data:JSON.stringify(postData)},
-        _.bind(this.handleConcatenateResponse, this));
-
-},
-
-  handleConcatenateResponse: function(response) {
-    this.exitLoadingState();
-
-    if ('error' in response && response.error.length) {
-      alert(response.error);
-    } else {
-      this.trigger('MODELS_UPDATED');
-    }
-},
 });

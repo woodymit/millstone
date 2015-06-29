@@ -103,7 +103,7 @@ def contig_list_controls(request):
             'table_id': request.GET.get('tableId',
                     'reference-genome-list-datatable'),
             'alignment_group_uid': alignment_group.uid,
-            'samples_uid_tuples': [(esta.experiment_sample.label, esta.experiment_sample.uid)
+            'samples_uid_tuples': [(esta.experiment_sample.label, esta.uid)
                     for esta in alignment_group.experimentsampletoalignment_set.all()]
     }
 
