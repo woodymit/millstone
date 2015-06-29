@@ -140,6 +140,9 @@ def generate_contigs(experiment_sample_to_alignment, contig_label_base):
                     parent_reference_genome=reference_genome,
                     experiment_sample_to_alignment=experiment_sample_to_alignment)
 
+            contig.metadata['coverage'] = float(seq_record.description.rsplit('_', 1)[1])
+            print "seq_record.description.rsplit('_')", seq_record.description.rsplit('_', 1)
+            print "float(seq_record.description.rsplit('_')[1]):", float(seq_record.description.rsplit('_', 1)[1])
             contig.metadata['timestamp'] = timestamp
 
             contig.ensure_model_data_dir_exists()

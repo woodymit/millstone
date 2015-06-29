@@ -692,6 +692,14 @@ class Contig(UniqueUidModelMixin):
         # Check whether the data dir exists, and create it if not.
         return ensure_exists_0775_dir(self.get_model_data_dir())
 
+    @property
+    def timestamp(self):
+        return self.metadata.get('timestamp', '')
+
+    @property
+    def coverage(self):
+        return self.metadata.get('coverage', '')
+
     @classmethod
     def get_field_order(clazz, **kwargs):
         """Get the order of the models for displaying on the front-end.
@@ -699,7 +707,9 @@ class Contig(UniqueUidModelMixin):
         """
         return [
             {'field': 'label'},
-            {'field': 'num_bases', 'verbose': 'Contig Length'}
+            {'field': 'num_bases', 'verbose': 'Contig Length'},
+            {'field': 'coverage', 'verbose': 'Average Coverage'},
+            {'field': 'timestamp'}
         ]
 
 

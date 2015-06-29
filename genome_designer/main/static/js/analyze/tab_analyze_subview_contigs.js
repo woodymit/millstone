@@ -21,9 +21,6 @@ gd.TabAnalyzeSubviewContigs = gd.TabAnalyzeSubviewAbstractBase.extend(
     if (this.datatableComponent) {
       this.datatableComponent.destroy();
     }
-    console.log('this.model:')
-    console.log(this.model)
-    console.log(this.model.attributes.project.uid)
 
     var requestData = {
         refGenomeUid: this.model.attributes.refGenomeUid,
@@ -33,7 +30,7 @@ gd.TabAnalyzeSubviewContigs = gd.TabAnalyzeSubviewAbstractBase.extend(
     this.datatableComponent = new gd.DataTableComponent({
         el: $('#gd-datatable-hook'),
         serverTarget: '/_/contigs',
-     //   controlsTemplate: '/_/templates/reference_genome_list_controls',
+        controlsTemplate: '/_/templates/contig_list_controls',
         requestData: requestData,
     });
 
@@ -42,18 +39,16 @@ gd.TabAnalyzeSubviewContigs = gd.TabAnalyzeSubviewAbstractBase.extend(
   },
 
   decorateControls: function() {
-    this.refGenomeControlsComponent = new gd.RefGenomeControlsComponent({
+    this.contigControlsComponent = new gd.ContigControlsComponent({
       el: '#gd-datatable-hook-control',
-      datatableComponent: this.datatableComponent
+      datatableComponent: this.datatableComponent,
+      alignmentGroupUid: this.model.attributes.alignmentGroupUid
     });
+    console.log('this.datatableComponent:')
+    console.log(this.datatableComponent)
 
-    this.listenTo(this.refGenomeControlsComponent, 'MODELS_UPDATED',
+    this.listenTo(this.contigControlsComponent, 'MODELS_UPDATED',
         _.bind(this.redrawDatatable, this));
-    this.listenTo(this.refGenomeControlsComponent, 'TOGGLE_DE_NOVO',
-        _.bind(function() {
-            this.showDeNovo = !this.showDeNovo;
-            this.redrawDatatable();
-        }, this));
   }
 });
 

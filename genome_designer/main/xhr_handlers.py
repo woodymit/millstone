@@ -258,6 +258,30 @@ def ref_genomes_download(request):
 
 @login_required
 @require_POST
+def contigs_delete(request):
+    """Deletes ReferenceGenomes.
+    """
+    request_data = json.loads(request.body)
+    contig_uid_list = request_data.get('contigUidList', [])
+    if len(contig_uid_list) == 0:
+        raise Http404
+
+    # First make sure all the samples belong to this user.
+    contigs_to_delete = Contig.objects.filter(
+            parent_reference_genome__project__owner=request.user.get_profile(),
+            uid__in=contig_uid_list)
+    if not len(contigs_to_delete) == len(contig_uid_list):
+        raise Http404
+
+    # Validation successful, delete.
+    contigs_to_delete.delete()
+
+    # Return success response.
+    return HttpResponse(json.dumps({}), content_type='application/json')
+
+
+@login_required
+@require_POST
 def variant_sets_delete(request):
     """Deletes a list of variant sets.
     """
