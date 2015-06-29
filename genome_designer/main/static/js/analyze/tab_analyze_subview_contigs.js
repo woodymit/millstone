@@ -32,8 +32,8 @@ gd.TabAnalyzeSubviewContigs = gd.TabAnalyzeSubviewAbstractBase.extend(
 
     this.datatableComponent = new gd.DataTableComponent({
         el: $('#gd-datatable-hook'),
-        serverTarget: '/_/ref_genomes',
-        controlsTemplate: '/_/templates/reference_genome_list_controls',
+        serverTarget: '/_/contigs',
+     //   controlsTemplate: '/_/templates/reference_genome_list_controls',
         requestData: requestData,
     });
 

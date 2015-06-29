@@ -56,9 +56,7 @@ gd.AlignmentView = Backbone.View.extend({
   handleGenerateContigsResponse: function(response) {
     if (response.is_contig_file_empty == 1) {
       alert('No evidence for structural variants in this alignment');
-    } else {
-      window.location.href = response.redirect;
-    };
+    }
   },
 
  /** Helper method to append input value to form. */

@@ -35,6 +35,7 @@ from main.model_views import get_all_fields
 from main.model_views import adapt_variant_to_frontend
 from main.models import AlignmentGroup
 from main.models import Chromosome
+from main.models import Contig
 from main.models import Dataset
 from main.models import ExperimentSample
 from main.models import ExperimentSampleToAlignment
@@ -1006,6 +1007,27 @@ def get_ref_genomes(request):
 
 @login_required
 @require_GET
+def get_contigs(request):
+    """Get list of Contigs for the provided Project uid.
+    """
+    # Parse the GET params.
+    project_uid = request.GET.get('projectUid')
+
+    # Lookup the model and verify the owner is the user
+    project = get_object_or_404(
+            Project,
+            owner=request.user.get_profile(),
+            uid=project_uid)
+
+    filters = {'project': project}
+
+    response_data = adapt_model_to_frontend(Contig, filters)
+
+    return HttpResponse(response_data, content_type='application/json')
+
+
+@login_required
+@require_GET
 def get_single_ref_genome(request):
     reference_genome_uid = request.GET.get('referenceGenomeUid')
     response_data = adapt_model_to_frontend(
@@ -1180,53 +1202,46 @@ def generate_contigs(request):
     # Generate name for contigs
     sample_label = experiment_sample_to_alignment.experiment_sample.label
     ref_label = reference_genome.label
-    contig_ref_genome_label = '_'.join(
-            [ref_label, sample_label, 'de_novo_contigs'])
+    contig_label_base = '_'.join(
+            [ref_label, sample_label])
 
-    # Create an insertion model for the contigs
-    contig_ref_genome = ReferenceGenome.objects.create(
-            project=reference_genome.project,
-            label=contig_ref_genome_label)
-    contig_ref_genome.metadata['is_from_de_novo_assembly'] = True
-
-    #     # Create an insertion model for the contigs
+    # # Create an insertion model for the contigs
     # contig_ref_genome = Insertion.objects.create(
     #         project=reference_genome.project,
     #         label=contig_ref_genome_label,
     #         reference_genome=reference_genome,
     #         experiment_sample_to_alignment=experiment_sample_to_alignment)
-    # #contig_ref_genome.metadata['is_from_de_novo_assembly'] = True
 
     # Generate a list of fasta file paths to the contigs
     contig_files = assembly.generate_contigs(
-            experiment_sample_to_alignment, contig_ref_genome)
+            experiment_sample_to_alignment, contig_label_base)
 
-    # Select only element in list
-    contig_file = contig_files[0]
+    # # Select only element in list
+    # contig_file = contig_files[0]
 
-    # Check if contigs exist
-    is_contig_file_empty = os.stat(contig_file).st_size == 0
-    if is_contig_file_empty:
-        contig_ref_genome.delete()
-        result = {
-            'is_contig_file_empty': True
-        }
-        return HttpResponse(
-            json.dumps(result), content_type='application/json')
+    # # Check if contigs exist
+    # is_contig_file_empty = os.stat(contig_file).st_size == 0
+    # if is_contig_file_empty:
+    #     contig_ref_genome.delete()
+    #     result = {
+    #         'is_contig_file_empty': True
+    #     }
+    #     return HttpResponse(
+    #         json.dumps(result), content_type='application/json')
 
-    # Create a dataset which will point to the file
-    add_dataset_to_entity(
-            contig_ref_genome, 'raw_contigs',
-            Dataset.TYPE.REFERENCE_GENOME_FASTA, contig_file)
+    # # Create a dataset which will point to the file
+    # add_dataset_to_entity(
+    #         contig_ref_genome, 'raw_contigs',
+    #         Dataset.TYPE.REFERENCE_GENOME_FASTA, contig_file)
 
-    # Get url for contig reference genome page for redirect
-    contig_ref_genome_url = reverse(
-            'main.views.reference_genome_view',
-            args=(contig_ref_genome.project.uid, contig_ref_genome.uid,))
+    # # Get url for contig reference genome page for redirect
+    # contig_ref_genome_url = reverse(
+    #         'main.views.reference_genome_view',
+    #         args=(contig_ref_genome.project.uid, contig_ref_genome.uid,))
 
     result = {
         'is_contig_file_empty': False,
-        'redirect': contig_ref_genome_url
+        'redirect': None
     }
 
     return HttpResponse(

@@ -156,6 +156,9 @@ urlpatterns = patterns('',
     url(r'^_/single_ref_genome$',
             'main.xhr_handlers.get_single_ref_genome'),
 
+    url(r'^_/contigs$',
+        'main.xhr_handlers.get_contigs'),
+
 
     ###########################################################################
     # Template XHR's
