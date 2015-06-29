@@ -125,7 +125,8 @@ def project_view(request, project_uid):
 VALID_ANALYZE_SUB_VIEWS = set([
     'variants',
     'sets',
-    'genes'
+    'genes',
+    'contigs'
 ])
 
 
