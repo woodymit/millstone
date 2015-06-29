@@ -10,8 +10,6 @@ gd.DataTableControlsComponent = Backbone.View.extend({
   initialize: function() {
     // Handle to the associated DataTableComponent.
     this.datatableComponent = this.options.datatableComponent;
-    console.log('this.options:');
-    console.log(this.options);
   },
 
   /**

@@ -44,14 +44,6 @@ gd.DataTableComponent = gd.AbstractDataTableComponent.extend({
           this.options.objList = response.obj_list;
           this.options.fieldConfig = response.field_config;
 
-          // DEBUG
-          console.log('this.options.fieldConfig')
-          console.log(this.options.fieldConfig)
-
-          // DEBUG
-          console.log('this.options.objList')
-          console.log(this.options.objList)
-
           this.displayableObjList = this.makeDisplayableObjectList(
               this.options.objList);
 
