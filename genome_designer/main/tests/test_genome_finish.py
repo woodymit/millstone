@@ -15,6 +15,7 @@ from genome_finish.insertion_placement import place_contig
 from genome_finish.millstone_de_novo_fns import get_match_counts
 from main.model_utils import get_dataset_with_type
 from main.models import AlignmentGroup
+from main.models import Contig
 from main.models import Dataset
 from main.models import ExperimentSample
 from main.models import ExperimentSampleToAlignment
@@ -115,7 +116,7 @@ class TestContigAssembly(TestCase):
                         experiment_sample=experiment_sample))
 
         request_data = {
-                'experimentSampleUid': experiment_sample_to_alignment.uid
+                'sampleAlignmentUid': experiment_sample_to_alignment.uid
         }
 
         request = HttpRequest()
@@ -126,20 +127,22 @@ class TestContigAssembly(TestCase):
         authenticate(username=TEST_USERNAME, password=TEST_PASSWORD)
         self.assertTrue(request.user.is_authenticated())
 
+        initial_contig_uids = [c.uid for c in Contig.objects.filter(
+                parent_reference_genome=reference_genome,
+                experiment_sample_to_alignment=experiment_sample_to_alignment)]
+
         xhr_handlers.generate_contigs(request)
 
+        contigs = Contig.objects.filter(
+                parent_reference_genome=reference_genome,
+                experiment_sample_to_alignment=experiment_sample_to_alignment).exclude(
+                        uid__in=initial_contig_uids)
+
         # Assert contigs were generated
-        contig_ref_label = '_'.join(
-                [reference_genome.label, experiment_sample.label,
-                 'de_novo_contigs'])
-        self.assertEqual(
-                ReferenceGenome.objects.filter(label=contig_ref_label).count(),
-                1)
+        for c in contigs:
+            self.assertTrue(c.num_bases > 0)
 
-        contig_ref = ReferenceGenome.objects.get(label=contig_ref_label)
-        self.assertTrue(contig_ref.num_bases > 0)
-
-        return contig_ref
+        return contigs
 
     def test_generate_contigs_with_existing_alignment(self):
         """Tests contig generation on samples with preexisting alignment
@@ -174,8 +177,10 @@ class TestContigAssembly(TestCase):
             experiment_sample=ins_1kb_reads)
 
         request_data = {
-            'experimentSampleUid': reads_align.uid
+            'sampleAlignmentUid': reads_align.uid
         }
+
+        print 'request_data:', request_data
 
         request = HttpRequest()
         request.GET = request_data
@@ -185,26 +190,32 @@ class TestContigAssembly(TestCase):
         authenticate(username=TEST_USERNAME, password=TEST_PASSWORD)
         self.assertTrue(request.user.is_authenticated())
 
+        initial_contig_uids = [c.uid for c in Contig.objects.filter(
+                parent_reference_genome=ins_1kb_ref,
+                experiment_sample_to_alignment=reads_align)]
+
         xhr_handlers.generate_contigs(request)
 
+        contigs = Contig.objects.filter(
+                parent_reference_genome=ins_1kb_ref,
+                experiment_sample_to_alignment=reads_align).exclude(
+                        uid__in=initial_contig_uids)
+
         # Assert contigs were generated
-        contig_ref_label = '_'.join(
-                [ins_1kb_ref.label, ins_1kb_reads.label, 'de_novo_contigs'])
-
-        self.assertEqual(
-                ReferenceGenome.objects.filter(label=contig_ref_label).count(),
-                1)
-
-        contig_ref = ReferenceGenome.objects.get(label=contig_ref_label)
-        self.assertTrue(contig_ref.num_bases > 0)
+        self.assertEqual(contigs.count(), 1)
+        self.assertTrue(contigs[0].num_bases > 0)
 
     def test_1kb_insertion_detection(self):
         """ Tests ability to detect and assemble 1kb insertion
         """
 
-        contigs_ref_genome = self._perform_assembly(
+        contigs = self._perform_assembly(
                 [INS_1KB_FQ_1_PATH, INS_1KB_FQ_2_PATH],
                 INS_1KB_REF_GENOME_PATH)
+
+        # Only one contig, corresponding to the 1kb insertion, should be created
+        self.assertTrue(contigs.count() == 1)
+        contig = contigs[0]
 
         # Create Experiment Sample for the inserted sequence
         insertion_sequence_sample = ExperimentSample.objects.create(
@@ -225,10 +236,10 @@ class TestContigAssembly(TestCase):
                 insertion_sequence_sample, Dataset.TYPE.FASTQ1
                 ).get_absolute_location()]
         ref_fasta = get_dataset_with_type(
-                contigs_ref_genome, Dataset.TYPE.REFERENCE_GENOME_FASTA
+                contig, Dataset.TYPE.REFERENCE_GENOME_FASTA
                 ).get_absolute_location()
         data_dir = os.path.join(
-                contigs_ref_genome.get_model_data_dir(), 'alignment_data')
+                contig.get_model_data_dir(), 'alignment_data')
         if not os.path.exists(data_dir):
             os.mkdir(data_dir)
         alignment_bam = minimal_bwa_align(reads, ref_fasta, data_dir)
