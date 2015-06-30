@@ -91,6 +91,7 @@ def contig_list_controls(request):
     """Returns the Contig List control box.
     """
 
+    # TODO: Find out if below line is important
     # csrf = request.GET.get('csrf')
 
     alignment_group = get_object_or_404(
@@ -103,15 +104,13 @@ def contig_list_controls(request):
             'table_id': request.GET.get('tableId',
                     'reference-genome-list-datatable'),
             'alignment_group_uid': alignment_group.uid,
-            'samples_uid_tuples': [(esta.experiment_sample.label, esta.uid)
-                    for esta in alignment_group.experimentsampletoalignment_set.all()]
+            'samples_uid_tuples': [
+                    (esta.experiment_sample.label, esta.uid) for esta in
+                    alignment_group.experimentsampletoalignment_set.all()]
     }
 
-    print 'context:', context
-
     return HttpResponse(
-            render_to_string('controls/contig_list_controls.html',
-                    context))
+            render_to_string('controls/contig_list_controls.html', context))
 
 
 def sample_list_controls(request):

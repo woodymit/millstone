@@ -161,7 +161,6 @@ urlpatterns = patterns('',
     url(r'^_/contigs/delete$',
         'main.xhr_handlers.contigs_delete'),
 
-
     ###########################################################################
     # Template XHR's
     # TODO: Replace this with client-side templating.

@@ -7,7 +7,6 @@
 gd.ContigControlsComponent = gd.DataTableControlsComponent.extend({
   initialize: function() {
     gd.DataTableControlsComponent.prototype.initialize.call(this);
-
     this.decorateControls();
   },
 
@@ -18,22 +17,6 @@ gd.ContigControlsComponent = gd.DataTableControlsComponent.extend({
     this.drawDropdownOptions();
   },
 
-  /** Puts UI in the loading state. */
-  enterLoadingState: function() {
-    $(".gd-id-form-submit-button")
-        .prop('disabled', true);
-
-    this.loadingSpinner = new gd.Spinner();
-    this.loadingSpinner.spin();
-  },
-
-  /** Puts UI in the loading state. */
-  exitLoadingState: function() {
-    $(".gd-id-form-submit-button")
-        .prop('disabled', false);
-    this.loadingSpinner.stop();
-  },
-
    /** Draws dropdown options. */
   drawDropdownOptions: function() {
     // Option to delete samples.
@@ -42,11 +25,6 @@ gd.ContigControlsComponent = gd.DataTableControlsComponent.extend({
     this.addDropdownOption(deleteOptionHtml);
     $('.gd-id-contigs-delete').click(_.bind(this.handleDelete, this));
   },
-
-  // drawNewDropdownOptions: function() {
-  //   // Generate contigs with default parameters
-  //   $('.gd-id-generate-contigs-default').click(_.bind(this.handleAssembleContigs, this));
-  // },
 
   /** Send request to generate contigs with default parameters **/
   handleAssembleContigs: function() {
@@ -65,11 +43,13 @@ gd.ContigControlsComponent = gd.DataTableControlsComponent.extend({
 
   handleGenerateContigsResponse: function(response) {
     this.exitLoadingState();
-    this.trigger('MODELS_UPDATED');
     $('.modal').modal('hide');
+
     if (response.is_contig_file_empty == 1) {
       alert('No evidence for structural variants in this alignment');
-    }
+    } else {
+      this.trigger('MODELS_UPDATED');
+    };
   },
 
   /** Parses the form files and prepares the data. */
@@ -120,4 +100,20 @@ gd.ContigControlsComponent = gd.DataTableControlsComponent.extend({
       this.trigger('MODELS_UPDATED');
     }
   },
+
+  /** Puts UI in the loading state. */
+  enterLoadingState: function() {
+    $(".gd-id-form-submit-button")
+        .prop('disabled', true);
+
+    this.loadingSpinner = new gd.Spinner();
+    this.loadingSpinner.spin();
+  },
+
+  /** Puts UI in the loading state. */
+  exitLoadingState: function() {
+    $(".gd-id-form-submit-button")
+        .prop('disabled', false);
+    this.loadingSpinner.stop();
+  }
 });

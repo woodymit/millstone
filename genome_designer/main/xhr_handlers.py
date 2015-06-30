@@ -50,8 +50,6 @@ from main.models import S3File
 from genome_finish import assembly
 from utils.combine_reference_genomes import combine_list_allformats
 from utils.data_export_util import export_melted_variant_view
-from utils.import_util import add_dataset_to_entity
-from utils.import_util import copy_and_add_dataset_source
 from utils.import_util import create_samples_from_row_data
 from utils.import_util import create_sample_models_for_eventual_upload
 from utils.import_util import import_reference_genome_from_local_file
@@ -1231,44 +1229,15 @@ def generate_contigs(request):
     contig_label_base = '_'.join(
             [ref_label, sample_label])
 
-    # # Create an insertion model for the contigs
-    # contig_ref_genome = Insertion.objects.create(
-    #         project=reference_genome.project,
-    #         label=contig_ref_genome_label,
-    #         reference_genome=reference_genome,
-    #         experiment_sample_to_alignment=experiment_sample_to_alignment)
-
     # Generate a list of fasta file paths to the contigs
-    contig_files = assembly.generate_contigs(
+    contig_filepaths = assembly.generate_contigs(
             experiment_sample_to_alignment, contig_label_base)
 
-    # # Select only element in list
-    # contig_file = contig_files[0]
+    # Check if contigs exist
+    are_no_contigs = all([os.stat(contig_filepath).st_size == 0
+            for contig_filepath in contig_filepaths])
 
-    # # Check if contigs exist
-    # is_contig_file_empty = os.stat(contig_file).st_size == 0
-    # if is_contig_file_empty:
-    #     contig_ref_genome.delete()
-    #     result = {
-    #         'is_contig_file_empty': True
-    #     }
-    #     return HttpResponse(
-    #         json.dumps(result), content_type='application/json')
-
-    # # Create a dataset which will point to the file
-    # add_dataset_to_entity(
-    #         contig_ref_genome, 'raw_contigs',
-    #         Dataset.TYPE.REFERENCE_GENOME_FASTA, contig_file)
-
-    # # Get url for contig reference genome page for redirect
-    # contig_ref_genome_url = reverse(
-    #         'main.views.reference_genome_view',
-    #         args=(contig_ref_genome.project.uid, contig_ref_genome.uid,))
-
-    result = {
-        'is_contig_file_empty': False,
-        'redirect': None
-    }
+    result = {'is_contig_file_empty': are_no_contigs}
 
     return HttpResponse(
         json.dumps(result), content_type='application/json')
