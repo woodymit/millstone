@@ -27,8 +27,6 @@ VELVET_KMER_LIST = [21]
 
 def generate_contigs(experiment_sample_to_alignment, contig_label_base):
 
-    timestamp = str(datetime.datetime.now())
-
     # Grab reference genome fasta path
     reference_genome = (
             experiment_sample_to_alignment.alignment_group.reference_genome)
@@ -65,21 +63,45 @@ def generate_contigs(experiment_sample_to_alignment, contig_label_base):
                 project=reference_genome.project)
 
     # Grab alignment bam file-path
-    alignment_sorted = get_dataset_with_type(
+    alignment_bam = get_dataset_with_type(
                 experiment_sample_to_alignment,
                 Dataset.TYPE.BWA_ALIGN).get_absolute_location()
+
+    # Get a bam of sorted SV indicants with pairs
+    sv_indicants_bam = get_sv_indicating_reads(
+            data_dir, alignment_bam)
+
+    velvet_opts = {
+        'velveth': {
+            'shortPaired': ''
+        },
+        'velvetg': {
+            'cov_cutoff': VELVET_COVERAGE_CUTOFF
+        }
+    }
+
+    # Perform velvet assembly
+    contig_files = assemble_with_velvet(
+            data_dir, velvet_opts, sv_indicants_bam,
+            reference_genome, experiment_sample_to_alignment,
+            contig_label_base)
+
+    return contig_files
+
+
+def get_sv_indicating_reads(data_dir, alignment_bam):
 
     alignment_prefix = os.path.join(data_dir, 'bwa_align')
 
     # Extract SV indicating reads
     unmapped_reads = alignment_prefix + '.unmapped.bam'
-    get_unmapped_reads(alignment_sorted, unmapped_reads)
+    get_unmapped_reads(alignment_bam, unmapped_reads)
 
     split_reads = alignment_prefix + '.split.bam'
-    get_split_reads(alignment_sorted, split_reads)
+    get_split_reads(alignment_bam, split_reads)
 
     clipped_reads = alignment_prefix + '.clipped.bam'
-    get_clipped_reads(alignment_sorted, clipped_reads)
+    get_clipped_reads(alignment_bam, clipped_reads)
 
     # Aggregate SV indicants
     SV_indicants_bam = alignment_prefix + '.SV_indicants.bam'
@@ -99,7 +121,7 @@ def generate_contigs(experiment_sample_to_alignment, contig_label_base):
     SV_indicants_with_pairs_sam = (
         alignment_prefix + '.SV_indicants_with_pairs.sam')
     add_paired_mates(
-            SV_indicants_sam, alignment_sorted, SV_indicants_with_pairs_sam)
+            SV_indicants_sam, alignment_bam, SV_indicants_with_pairs_sam)
 
     # Make bam of SV indicants w/mate pairs
     SV_indicants_with_pairs_bam = (
@@ -109,27 +131,31 @@ def generate_contigs(experiment_sample_to_alignment, contig_label_base):
     # Sort for velvet assembly
     sort_bam(SV_indicants_with_pairs_bam)
 
-    # Velvet assembly
+    return SV_indicants_with_pairs_bam
+
+
+def assemble_with_velvet(data_dir, velvet_opts, sv_indicants_bam,
+        reference_genome, experiment_sample_to_alignment,
+        contig_label_base):
+
+    # DEBUG: Add bam track for SV indicants
+    AlignmentGroup.objects.create(reference_genome=reference_genome,
+    add_bam_file_track(actual_genome, experiment_sample_to_alignment, Dataset.TYPE.BWA_ALIGN)
+
+    timestamp = str(datetime.datetime.now())
+
     contig_files = []
-    opt_dict = {
-        'velveth': {
-            'shortPaired': ''
-        },
-        'velvetg': {
-            'cov_cutoff': VELVET_COVERAGE_CUTOFF
-        }
-    }
     kmer_list = VELVET_KMER_LIST
     for kmer_length in kmer_list:
         # Set hash length argument for velveth
-        opt_dict['velveth']['hash_length'] = kmer_length
+        velvet_opts['velveth']['hash_length'] = kmer_length
 
         # Run velvet assembly on SV indicants
         velvet_dir = os.path.join(data_dir, 'velvet_k' + str(kmer_length))
         run_velvet(
-                SV_indicants_with_pairs_bam,
+                sv_indicants_bam,
                 velvet_dir,
-                opt_dict)
+                velvet_opts)
 
         # Collect resulting contigs fasta
         contigs_fasta = os.path.join(velvet_dir, 'contigs.fa')
