@@ -16,9 +16,17 @@ from utils.bam_utils import concatenate_bams
 from utils.bam_utils import make_bam
 from utils.bam_utils import make_sam
 from utils.bam_utils import rmdup
-from utils.bam_utils import sort_bam
+from utils.bam_utils import sort_bam_by_name
 from utils.import_util import add_dataset_to_entity
 from utils.import_util import prepare_ref_genome_related_datasets
+
+#DEBUG imports
+from main.models import AlignmentGroup
+from main.models import ExperimentSample
+from main.models import ExperimentSampleToAlignment
+from utils.bam_utils import index_bam
+from utils.bam_utils import sort_bam_by_coordinate
+from utils.jbrowse_util import add_bam_file_track
 
 # Default args for velvet assembly
 VELVET_COVERAGE_CUTOFF = 3
@@ -129,7 +137,7 @@ def get_sv_indicating_reads(data_dir, alignment_bam):
     make_bam(SV_indicants_with_pairs_sam, SV_indicants_with_pairs_bam)
 
     # Sort for velvet assembly
-    sort_bam(SV_indicants_with_pairs_bam)
+    sort_bam_by_name(SV_indicants_with_pairs_bam)
 
     return SV_indicants_with_pairs_bam
 
@@ -137,10 +145,6 @@ def get_sv_indicating_reads(data_dir, alignment_bam):
 def assemble_with_velvet(data_dir, velvet_opts, sv_indicants_bam,
         reference_genome, experiment_sample_to_alignment,
         contig_label_base):
-
-    # DEBUG: Add bam track for SV indicants
-    AlignmentGroup.objects.create(reference_genome=reference_genome,
-    add_bam_file_track(actual_genome, experiment_sample_to_alignment, Dataset.TYPE.BWA_ALIGN)
 
     timestamp = str(datetime.datetime.now())
 
@@ -193,3 +197,25 @@ def assemble_with_velvet(data_dir, velvet_opts, sv_indicants_bam,
                     filesystem_location=dataset_path)
 
     return contig_files
+
+
+def add_bam_track(reference_genome, bam_file, label):
+    ag = AlignmentGroup.objects.create(
+            reference_genome=reference_genome,
+            label=label)
+    es = ExperimentSample.objects.create(
+            project=reference_genome.project,
+            label=label)
+    esta = ExperimentSampleToAlignment.objects.create(
+            alignment_group=ag,
+            experiment_sample=es)
+    coordinate_sorted_bam = (os.path.splitext(bam_file)[0] +
+            '.coordinate_sorted.bam')
+    sort_bam_by_coordinate(bam_file, coordinate_sorted_bam)
+    index_bam(coordinate_sorted_bam)
+    add_dataset_to_entity(esta,
+                label,
+                Dataset.TYPE.BWA_ALIGN,
+                filesystem_location=coordinate_sorted_bam)
+    add_bam_file_track(reference_genome, esta,
+            Dataset.TYPE.BWA_ALIGN)

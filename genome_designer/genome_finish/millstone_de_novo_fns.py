@@ -29,6 +29,8 @@ def get_clipped_reads(bam_filename, output_filename, clipping_threshold=None):
         stats = clipping_stats(bam_filename, sample_size=10000)
         clipping_threshold = int(stats['mean'] + stats['std'])
 
+    print "get_clipped_reads:\n\tCLIPPING THRESHOLD:", clipping_threshold, "\n"
+
     cmd = ' | '.join([
             # -F 0x100 option filters out secondary alignments
             '{samtools} view -h -F 0x100 {bam_filename}',
