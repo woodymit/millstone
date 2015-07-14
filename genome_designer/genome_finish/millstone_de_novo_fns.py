@@ -23,6 +23,8 @@ def get_clipped_reads(bam_filename, output_filename, clipping_threshold=None):
         stats = clipping_stats(bam_filename, sample_size=10000)
         clipping_threshold = int(stats['mean'] + stats['std'])
 
+    print "get_clipped_reads:\n\tCLIPPING THRESHOLD:", clipping_threshold, "\n"
+
     cmd = ' | '.join([
             '{samtools} view -h {bam_filename}',
             '{extract_clipped_script} -i stdin -t {clipping_threshold}',
