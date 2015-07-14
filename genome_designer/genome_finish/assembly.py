@@ -12,6 +12,7 @@ from main.models import Contig
 from main.models import Dataset
 from main.model_utils import get_dataset_with_type
 from pipeline.read_alignment import align_with_bwa_mem
+from pipeline.read_alignment import get_insert_size_mean_and_stdev
 from utils.bam_utils import concatenate_bams
 from utils.bam_utils import make_bam
 from utils.bam_utils import make_sam
@@ -79,12 +80,18 @@ def generate_contigs(experiment_sample_to_alignment, contig_label_base):
     sv_indicants_bam = get_sv_indicating_reads(
             data_dir, alignment_bam)
 
+    # Find insertion metrics
+    ins_length, ins_length_sd = get_insert_size_mean_and_stdev(
+            experiment_sample_to_alignment)
+
     velvet_opts = {
         'velveth': {
             'shortPaired': ''
         },
         'velvetg': {
-            'cov_cutoff': VELVET_COVERAGE_CUTOFF
+            'ins_length': ins_length,
+            'ins_length_sd': ins_length_sd,
+            'cov_cutoff': VELVET_COVERAGE_CUTOFF,
         }
     }
 
@@ -185,7 +192,6 @@ def assemble_with_velvet(data_dir, velvet_opts, sv_indicants_bam,
 
             dataset_path = os.path.join(contig.get_model_data_dir(),
                     'fasta.fa')
-            assert not os.path.exists(dataset_path)
 
             with open(dataset_path, 'w') as fh:
                 SeqIO.write([seq_record], fh, 'fasta')
