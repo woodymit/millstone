@@ -30,7 +30,7 @@ from utils.bam_utils import sort_bam_by_coordinate
 from utils.jbrowse_util import add_bam_file_track
 
 # Default args for velvet assembly
-VELVET_COVERAGE_CUTOFF = 3
+VELVET_COVERAGE_CUTOFF = 30
 VELVET_KMER_LIST = [21]
 
 
@@ -89,6 +89,7 @@ def generate_contigs(experiment_sample_to_alignment, contig_label_base):
             'shortPaired': ''
         },
         'velvetg': {
+            'read_trkg': 'yes',
             'ins_length': ins_length,
             'ins_length_sd': ins_length_sd,
             'cov_cutoff': VELVET_COVERAGE_CUTOFF,
