@@ -74,6 +74,9 @@ def get_insertion_location(bam_path):
 
     samfile = pysam.AlignmentFile(bam_path)
     contig_length = 0
+
+    left_read = None
+    right_read = None
     for read in samfile:
         contig_length = max(contig_length, read.query_length)
         if read.cigartuples[0][0] not in clip_codes:
@@ -105,7 +108,7 @@ def get_insertion_location(bam_path):
             }
             return locations_dict
 
-    return {'error_string', error_string}
+    return {'error_string': error_string}
 
 
 def make_sliced_fasta(fasta_path, seqrecord_id, left_index, right_index,

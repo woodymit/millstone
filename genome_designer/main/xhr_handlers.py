@@ -1137,6 +1137,8 @@ def contigs_find_insertion_location(request):
                 result['error'].append(
                         (contig.label, insertion_data['error_string']))
             else:
+                # import ipdb
+                # ipdb.set_trace()
                 result['error'] = [
                         (contig.label, insertion_data['error_string'])]
         else:
