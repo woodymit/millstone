@@ -40,6 +40,7 @@ from django.conf import settings
 import pysam
 
 from main.exceptions import ValidationException
+from main.model_utils import get_dataset_with_type
 from main.models import Chromosome
 from main.models import Contig
 from main.models import Dataset
@@ -48,68 +49,66 @@ from main.models import Variant
 from main.models import VariantAlternate
 from main.models import VariantSet
 from main.models import VariantToVariantSet
-from utils.model_utils import get_dataset_with_type
 from utils.reference_genome_maker_util import generate_new_reference_genome
 
 ENDPOINT_MODE_DIFFERENCE_CUTOFF = 2
 
 
-def get_insertion_placement_positions(contig, contig_number, genome_finishing_directory_number):
-    sample_alignment = contig.experiment_sample_to_alignment
-    genome_finish_dir = os.path.join(sample_alignment.get_model_data_dir(), 'genome_finishing')
-    assembly_dir = os.path.join(genome_finish_dir, str(genome_finishing_directory_number), 'velvet_k21')
+def place_contig(contig, new_reference_genome_label):
+    # Find the insertion position in reference and the end positions of the
+    # insertion cassette in the contig
+    insertion_placement_positions = get_insertion_placement_positions(contig)
 
-    read_unpacking_dir = os.path.join(genome_finish_dir, str(genome_finishing_directory_number), 'read_unpacking')
-    if not os.path.exists(read_unpacking_dir):
-        os.mkdir(read_unpacking_dir)
+    # # Propogate error message upwards
+    # if 'error_string' in placement_position_params:
+    #     return placement_position_params
 
-    contig_reads = extract_contig_reads(contig, contig_number, genome_finishing_directory_number, read_unpacking_dir, 'clipped')
-
-    extracted_clipped_read_dicts = extract_left_and_right_clipped_read_dicts(contig_reads)
-    left_clipped = extracted_clipped_read_dicts['left_clipped']
-    right_clipped = extracted_clipped_read_dicts['right_clipped']
-
-    ref_insertion_endpoints = find_ref_insertion_endpoints(left_clipped, right_clipped)
-
-    # TODO: Handle case of no endpoints found
-    assert ref_insertion_endpoints['left'] is not None and ref_insertion_endpoints['right'] is not None
-
-    left_clipped_same_end = left_clipped[ref_insertion_endpoints['right']]
-    right_clipped_same_end = right_clipped[ref_insertion_endpoints['left']]
-
-    contig_insertion_endpoints = find_contig_insertion_endpoints(contig, read_unpacking_dir, left_clipped_same_end, right_clipped_same_end)
-
-    return {
-            'referenece': ref_insertion_endpoints,
-            'contig': contig_insertion_endpoints
+    new_reference_genome_params = {
+        'label': new_reference_genome_label
     }
 
+    # Generate a new version of the reference genome with the
+    # cassette incorporated
+    is_reverse = contig.metadata.get('is_reverse', False)
+    return place_cassette(
+            contig,
+            insertion_placement_positions,
+            new_reference_genome_params,
+            is_reverse)
 
-def place_cassette(reference_genome, contig, placement_position_params,
-        new_reference_genome_params, is_reverse=None):
+
+def place_cassette(contig, insertion_placement_positions,
+                   new_reference_genome_params, is_reverse=None):
 
     # Validate param dictionaries
     try:
-        for key in ['ref_insertion_pos', 'ref_chromosome_seqrecord_id',
-                'contig_cassette_start_pos', 'contig_cassette_end_pos']:
-            assert key in placement_position_params
-
+        for key in ['reference', 'contig']:
+            assert key in insertion_placement_positions
+            for inner_key in ['left', 'right']:
+                assert inner_key in insertion_placement_positions[key]
         assert 'label' in new_reference_genome_params
     except Exception as e:
         raise ValidationException(e)
 
+    reference_genome = contig.parent_reference_genome
     # Get chromosome of reference genome to be recieving cassette
+    # insertion_chromosome = Chromosome.objects.get(
+    #     reference_genome=reference_genome,
+    #     seqrecord_id=placement_position_params['ref_chromosome_seqrecord_id'])
+    # TODO: UNHACK
     insertion_chromosome = Chromosome.objects.get(
-        reference_genome=reference_genome,
-        seqrecord_id=placement_position_params['ref_chromosome_seqrecord_id'])
+            reference_genome=reference_genome)
 
-    # Create variant to house insertion
-    insertion_variant = Variant.objects.create(
-            reference_genome=reference_genome,
-            chromosome=insertion_chromosome,
-            type=Variant.TYPE.INSERTION,
-            position=placement_position_params['ref_insertion_pos'],
-            ref_value='')
+    if insertion_placement_positions['reference']['left'] == insertion_placement_positions['reference']['right']:
+        # Create variant to house insertion
+        insertion_variant = Variant.objects.create(
+                reference_genome=reference_genome,
+                chromosome=insertion_chromosome,
+                type=Variant.TYPE.INSERTION,
+                position=insertion_placement_positions['reference']['left'],
+                ref_value='')
+    else:
+        raise Exception('TODO: HANDLE INSERTION WITH DELETION')
 
     # Get Seqrecord
     contig_fasta = get_dataset_with_type(
@@ -125,12 +124,12 @@ def place_cassette(reference_genome, contig, placement_position_params,
     # Extract cassette sequence from contig
     if is_reverse:
         cassette_sequence = str(contig_seqrecord.seq.reverse_complement()[
-            placement_position_params['contig_cassette_start_pos']:
-            placement_position_params['contig_cassette_end_pos']])
+            insertion_placement_positions['contig']['left']:
+            insertion_placement_positions['contig']['right']])
     else:
         cassette_sequence = str(contig_seqrecord.seq[
-                placement_position_params['contig_cassette_start_pos']:
-                placement_position_params['contig_cassette_end_pos']])
+                insertion_placement_positions['contig']['left']:
+                insertion_placement_positions['contig']['right']])
 
     # Create the variant alternate for the cassette sequence
     insertion_variant.variantalternate_set.add(
@@ -152,12 +151,40 @@ def place_cassette(reference_genome, contig, placement_position_params,
             new_reference_genome_params)
 
 
-def extract_contig_reads(contig, contig_number, genome_finishing_directory_number,
-                         read_unpacking_dir, read_category='all'):
-    # INPUTS:
-    # contig = Contig.objects.get(label='ins_1kb_ins_1kb_sample_NODE_1_length_1966_cov_23.051373')
-    # contig_number = 1
-    # genome_finishing_directory_number = 1
+def get_insertion_placement_positions(contig):
+
+    read_unpacking_dir = contig.get_model_data_dir()
+    if not os.path.exists(read_unpacking_dir):
+        os.mkdir(read_unpacking_dir)
+
+    contig_reads = extract_contig_reads(contig, read_unpacking_dir, 'clipped')
+
+    extracted_clipped_read_dicts = extract_left_and_right_clipped_read_dicts(
+            contig_reads)
+    left_clipped = extracted_clipped_read_dicts['left_clipped']
+    right_clipped = extracted_clipped_read_dicts['right_clipped']
+
+    ref_insertion_endpoints = find_ref_insertion_endpoints(
+            left_clipped, right_clipped)
+
+    # TODO: Handle case of no endpoints found
+    assert (ref_insertion_endpoints['left'] is not None and
+            ref_insertion_endpoints['right'] is not None)
+
+    left_clipped_same_end = left_clipped[ref_insertion_endpoints['right']]
+    right_clipped_same_end = right_clipped[ref_insertion_endpoints['left']]
+
+    contig_insertion_endpoints = find_contig_insertion_endpoints(
+            contig, read_unpacking_dir, left_clipped_same_end,
+            right_clipped_same_end)
+
+    return {
+            'reference': ref_insertion_endpoints,
+            'contig': contig_insertion_endpoints
+    }
+
+
+def extract_contig_reads(contig, read_unpacking_dir, read_category='all'):
 
     READ_CATEGORY_TO_FILENAME = {
         'all': 'bwa_align.SV_indicants_with_pairs.bam',
@@ -168,17 +195,20 @@ def extract_contig_reads(contig, contig_number, genome_finishing_directory_numbe
     }
     assert read_category in READ_CATEGORY_TO_FILENAME
 
-    extract_contig_reads_executable = os.path.join(settings.TOOLS_DIR, 'velvet/contrib/extractContigReads/extractContigReads.pl')
+    extract_contig_reads_executable = os.path.join(
+            settings.TOOLS_DIR,
+            'velvet/contrib/extractContigReads/extractContigReads.pl')
 
-    sample_alignment = contig.experiment_sample_to_alignment
-    genome_finish_dir = os.path.join(sample_alignment.get_model_data_dir(), 'genome_finishing')
-    assembly_dir = os.path.join(genome_finish_dir, str(genome_finishing_directory_number), 'velvet_k21')
+    assembly_dir = contig.metadata['assembly_dir']
 
-    contig_number = 1
-    cmd = [extract_contig_reads_executable, str(contig_number), assembly_dir]
+    contig_node_number = contig.metadata['node_number']
+    cmd = [extract_contig_reads_executable, str(contig_node_number),
+           assembly_dir]
     cmd = ' '.join(cmd)
 
-    contig_reads_fasta = os.path.join(read_unpacking_dir, 'contig_' + str(contig_number) + '_reads.fa')
+    contig_reads_fasta = os.path.join(
+            contig.get_model_data_dir(),
+            'extracted_reads.fa')
     if not os.path.exists(contig_reads_fasta):
         with open(contig_reads_fasta, 'w') as fh:
             subprocess.call(cmd, shell=True, stdout=fh)
@@ -193,7 +223,11 @@ def extract_contig_reads(contig, contig_number, genome_finishing_directory_numbe
                 read_number = int(m1.group(2))
                 contig_reads[read_id].append(read_number)
 
-    sv_indicant_reads_path = os.path.join(genome_finish_dir, str(genome_finishing_directory_number), READ_CATEGORY_TO_FILENAME[read_category])
+    sv_indicant_reads_path = os.path.join(
+            contig.metadata['assembly_dir'],
+            '..',
+            READ_CATEGORY_TO_FILENAME[read_category])
+
     sam_file = pysam.AlignmentFile(sv_indicant_reads_path)
     sv_indicant_reads_in_contig = []
     for read in sam_file:
@@ -376,6 +410,7 @@ def find_contig_insertion_endpoints(contig, read_unpacking_dir, left_clipped_sam
     REVERSED_COMPLEMENTARITY_FRACTION_CUTOFF = 0.75
     if reversed_complementarity_count / total_mapped_count > REVERSED_COMPLEMENTARITY_FRACTION_CUTOFF:
         contig.metadata['is_reverse'] = True
+        contig.save()
 
     # Write reverse complement of contig to file if is reverse
     if contig.metadata.get('is_reverse', False):
