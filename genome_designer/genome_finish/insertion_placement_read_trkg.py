@@ -105,7 +105,7 @@ def place_cassette(contig, insertion_placement_positions,
                 reference_genome=reference_genome,
                 chromosome=insertion_chromosome,
                 type=Variant.TYPE.INSERTION,
-                position=insertion_placement_positions['reference']['left'],
+                position=insertion_placement_positions['reference']['left'] + 1,
                 ref_value='')
     else:
         raise Exception('TODO: HANDLE INSERTION WITH DELETION')

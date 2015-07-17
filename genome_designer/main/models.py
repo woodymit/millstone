@@ -718,12 +718,12 @@ class Contig(UniqueUidModelMixin):
         return self.metadata.get('chromosome', '')
 
     @property
-    def ref_insertion_pos(self):
-        return self.metadata.get('ref_insertion_pos', '')
+    def reference_insertion_endpoints(self):
+        return self.metadata.get('reference_insertion_endpoints', '')
 
     @property
-    def insertion_sequence_endpoints(self):
-        return self.metadata.get('insertion_sequence_endpoints', '')
+    def contig_insertion_endpoints(self):
+        return self.metadata.get('contig_insertion_endpoints', '')
 
     @classmethod
     def get_field_order(clazz, **kwargs):
@@ -735,10 +735,9 @@ class Contig(UniqueUidModelMixin):
             {'field': 'num_bases', 'verbose': 'Contig Length'},
             {'field': 'coverage', 'verbose': 'Average Coverage'},
             {'field': 'timestamp'},
-            {'field': 'chromosome', 'verbose': 'Chromosome'},
-            {'field': 'ref_insertion_pos',
-                    'verbose': 'Reference Insertion Position'},
-            {'field': 'insertion_sequence_endpoints'}
+            {'field': 'chromosome'},
+            {'field': 'reference_insertion_endpoints'},
+            {'field': 'contig_insertion_endpoints'}
         ]
 
 
