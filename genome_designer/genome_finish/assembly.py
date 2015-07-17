@@ -1,5 +1,6 @@
 import datetime
 import os
+import re
 
 from Bio import SeqIO
 
@@ -155,6 +156,7 @@ def assemble_with_velvet(data_dir, velvet_opts, sv_indicants_bam,
         contig_label_base):
 
     timestamp = str(datetime.datetime.now())
+    contig_number_pattern = re.compile('^NODE_(\d+)_')
 
     contig_files = []
     kmer_list = VELVET_KMER_LIST
@@ -187,7 +189,13 @@ def assemble_with_velvet(data_dir, velvet_opts, sv_indicants_bam,
 
             contig.metadata['coverage'] = float(
                     seq_record.description.rsplit('_', 1)[1])
+
             contig.metadata['timestamp'] = timestamp
+
+            contig.metadata['node_number'] = int(contig_number_pattern.findall(
+                    seq_record.description)[0])
+
+            contig.metadata['assembly_directory'] = velvet_dir
 
             contig.ensure_model_data_dir_exists()
 
