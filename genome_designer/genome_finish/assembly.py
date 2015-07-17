@@ -195,7 +195,7 @@ def assemble_with_velvet(data_dir, velvet_opts, sv_indicants_bam,
             contig.metadata['node_number'] = int(contig_number_pattern.findall(
                     seq_record.description)[0])
 
-            contig.metadata['assembly_directory'] = velvet_dir
+            contig.metadata['assembly_dir'] = velvet_dir
 
             contig.ensure_model_data_dir_exists()
 
