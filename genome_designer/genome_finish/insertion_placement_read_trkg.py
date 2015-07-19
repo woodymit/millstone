@@ -59,9 +59,9 @@ def place_contig(contig, new_reference_genome_label):
     # insertion cassette in the contig
     insertion_placement_positions = get_insertion_placement_positions(contig)
 
-    # # Propogate error message upwards
-    # if 'error_string' in placement_position_params:
-    #     return placement_position_params
+    # Propogate error message upwards
+    if 'error_string' in insertion_placement_positions:
+        return insertion_placement_positions
 
     new_reference_genome_params = {
         'label': new_reference_genome_label
@@ -158,6 +158,9 @@ def get_insertion_placement_positions(contig):
         os.mkdir(read_unpacking_dir)
 
     contig_reads = extract_contig_reads(contig, read_unpacking_dir, 'clipped')
+    if len(contig_reads) == 0:
+        return {'error_string':
+                'No clipped reads were assembled into the contig'}
 
     extracted_clipped_read_dicts = extract_left_and_right_clipped_read_dicts(
             contig_reads)
@@ -167,9 +170,20 @@ def get_insertion_placement_positions(contig):
     ref_insertion_endpoints = find_ref_insertion_endpoints(
             left_clipped, right_clipped)
 
-    # TODO: Handle case of no endpoints found
-    assert (ref_insertion_endpoints['left'] is not None and
-            ref_insertion_endpoints['right'] is not None)
+    # Handle case of no endpoints found
+    if (ref_insertion_endpoints['left'] is None and
+            ref_insertion_endpoints['right'] is None):
+        return {'error_string': ('Could not find left or right reference ' +
+                'insertion endpoints using ' + str(len(contig_reads)) +
+                ' clipped reads')}
+    elif ref_insertion_endpoints['left'] is None:
+        return {'error_string': ('Could not find left reference ' +
+                'insertion endpoint using ' + str(len(contig_reads)) +
+                ' clipped reads')}
+    elif ref_insertion_endpoints['right'] is None:
+        return {'error_string': ('Could not find right reference ' +
+                'insertion endpoint using ' + str(len(contig_reads)) +
+                ' clipped reads')}
 
     left_clipped_same_end = left_clipped[ref_insertion_endpoints['right']]
     right_clipped_same_end = right_clipped[ref_insertion_endpoints['left']]
@@ -275,19 +289,32 @@ def find_ref_insertion_endpoints(left_clipped, right_clipped):
     as keys respectively
     """
     # Find positions in reference of most left clipping points
-    left_clipped_list_sorted = sorted(left_clipped.items(), key=lambda x:len(x[1]), reverse=True)
-    highest_clip_consensus = len(left_clipped_list_sorted[0][1])
-    second_highest_clip_consensus = len(left_clipped_list_sorted[1][1]) if len(left_clipped_list_sorted) > 1 else 0
-    if highest_clip_consensus - second_highest_clip_consensus > 2:
+    left_clipped_list_sorted = sorted(
+            left_clipped.items(), key=lambda x: len(x[1]), reverse=True)
+
+    highest_clip_consensus = (len(left_clipped_list_sorted[0][1])
+            if len(left_clipped_list_sorted) > 0 else 0)
+    second_highest_clip_consensus = (len(left_clipped_list_sorted[1][1])
+            if len(left_clipped_list_sorted) > 1 else 0)
+
+    if (highest_clip_consensus - second_highest_clip_consensus
+            > ENDPOINT_MODE_DIFFERENCE_CUTOFF):
         ref_ins_right_end = left_clipped_list_sorted[0][0]
     else:
         ref_ins_right_end = None
 
+
     # Same for right clipping
-    right_clipped_list_sorted = sorted(right_clipped.items(), key=lambda x:len(x[1]), reverse=True)
-    highest_clip_consensus = len(right_clipped_list_sorted[0][1])
-    second_highest_clip_consensus = len(right_clipped_list_sorted[1][1]) if len(right_clipped_list_sorted) > 1 else 0
-    if highest_clip_consensus - second_highest_clip_consensus > 2:
+    right_clipped_list_sorted = sorted(
+            right_clipped.items(), key=lambda x: len(x[1]), reverse=True)
+
+    highest_clip_consensus = (len(right_clipped_list_sorted[0][1])
+            if len(right_clipped_list_sorted) > 0 else 0)
+    second_highest_clip_consensus = (len(right_clipped_list_sorted[1][1])
+            if len(right_clipped_list_sorted) > 1 else 0)
+
+    if (highest_clip_consensus - second_highest_clip_consensus
+            > ENDPOINT_MODE_DIFFERENCE_CUTOFF):
         ref_ins_left_end = right_clipped_list_sorted[0][0]
     else:
         ref_ins_left_end = None

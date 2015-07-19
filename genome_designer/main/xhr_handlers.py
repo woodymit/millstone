@@ -1132,7 +1132,7 @@ def contigs_find_insertion_location(request):
                 contig)
 
         if 'error_string' in insertion_placement_positions:
-            if 'error' in result:
+            if 'error' not in result:
                 result['error'] = []
             result['error'].append((
                     contig.label,
