@@ -256,6 +256,22 @@ def extract_contig_reads(contig, read_unpacking_dir, read_category='all'):
         if read_number in contig_read_numbers:
             sv_indicant_reads_in_contig.append(read)
 
+    # DEBUG:
+    from genome_finish.assembly import add_bam_track
+    extracted_reads_bam_file = os.path.join(
+            contig.get_model_data_dir(), read_category + '.bam')
+    extracted_reads_alignment_file = pysam.AlignmentFile(
+        extracted_reads_bam_file, "wb", template=sam_file)
+
+    for read in sv_indicant_reads_in_contig:
+        extracted_reads_alignment_file.write(read)
+    extracted_reads_alignment_file.close()
+
+    label = ('Contig_' + str(contig.metadata['node_number']) + '_length_' +
+            str(contig.num_bases) + '_' + str(read_category))
+    add_bam_track(
+            contig.parent_reference_genome, extracted_reads_bam_file, label)
+
     return sv_indicant_reads_in_contig
 
 
