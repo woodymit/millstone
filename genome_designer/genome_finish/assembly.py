@@ -79,7 +79,8 @@ def generate_contigs(experiment_sample_to_alignment, contig_label_base):
 
     # Get a bam of sorted SV indicants with pairs
     sv_indicants_bam = get_sv_indicating_reads(
-            data_dir, alignment_bam)
+            data_dir, alignment_bam,
+            input_sv_indicant_types={'clipped': False})
 
     # Find insertion metrics
     ins_length, ins_length_sd = get_insert_size_mean_and_stdev(
@@ -106,24 +107,40 @@ def generate_contigs(experiment_sample_to_alignment, contig_label_base):
     return contig_files
 
 
-def get_sv_indicating_reads(data_dir, alignment_bam):
+def get_sv_indicating_reads(
+        data_dir, alignment_bam, input_sv_indicant_types={}):
+
+    sv_indicant_types = {
+        'clipped': True,
+        'split': True,
+        'unmapped': True
+    }
+    sv_indicant_types.update(input_sv_indicant_types)
 
     alignment_prefix = os.path.join(data_dir, 'bwa_align')
 
     # Extract SV indicating reads
+    sv_bams_list = []
+
     unmapped_reads = alignment_prefix + '.unmapped.bam'
     get_unmapped_reads(alignment_bam, unmapped_reads)
+    if sv_indicant_types['unmapped']:
+        sv_bams_list.append(unmapped_reads)
 
     split_reads = alignment_prefix + '.split.bam'
     get_split_reads(alignment_bam, split_reads)
+    if sv_indicant_types['split']:
+        sv_bams_list.append(split_reads)
 
     clipped_reads = alignment_prefix + '.clipped.bam'
     get_clipped_reads(alignment_bam, clipped_reads)
+    if sv_indicant_types['clipped']:
+        sv_bams_list.append(clipped_reads)
 
     # Aggregate SV indicants
     SV_indicants_bam = alignment_prefix + '.SV_indicants.bam'
     concatenate_bams(
-            [unmapped_reads, split_reads, clipped_reads],
+            sv_bams_list,
             SV_indicants_bam)
 
     # Remove duplicates

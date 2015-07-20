@@ -157,7 +157,7 @@ def get_insertion_placement_positions(contig):
     if not os.path.exists(read_unpacking_dir):
         os.mkdir(read_unpacking_dir)
 
-    contig_reads = extract_contig_reads(contig, read_unpacking_dir, 'clipped')
+    contig_reads = extract_contig_reads(contig, read_unpacking_dir, 'all')
     if len(contig_reads) == 0:
         return {'error_string':
                 'No clipped reads were assembled into the contig'}
@@ -192,13 +192,17 @@ def get_insertion_placement_positions(contig):
             contig, read_unpacking_dir, left_clipped_same_end,
             right_clipped_same_end)
 
+    # Propogate error upwards
+    if 'error_string' in contig_insertion_endpoints:
+        return contig_insertion_endpoints
+
     return {
             'reference': ref_insertion_endpoints,
             'contig': contig_insertion_endpoints
     }
 
 
-def extract_contig_reads(contig, read_unpacking_dir, read_category='all'):
+def extract_contig_reads(contig, read_category='all'):
 
     READ_CATEGORY_TO_FILENAME = {
         'all': 'bwa_align.SV_indicants_with_pairs.bam',
@@ -256,21 +260,21 @@ def extract_contig_reads(contig, read_unpacking_dir, read_category='all'):
         if read_number in contig_read_numbers:
             sv_indicant_reads_in_contig.append(read)
 
-    # DEBUG:
-    from genome_finish.assembly import add_bam_track
-    extracted_reads_bam_file = os.path.join(
-            contig.get_model_data_dir(), read_category + '.bam')
-    extracted_reads_alignment_file = pysam.AlignmentFile(
-        extracted_reads_bam_file, "wb", template=sam_file)
+    # # DEBUG:
+    # from genome_finish.assembly import add_bam_track
+    # extracted_reads_bam_file = os.path.join(
+    #         contig.get_model_data_dir(), read_category + '.bam')
+    # extracted_reads_alignment_file = pysam.AlignmentFile(
+    #     extracted_reads_bam_file, "wb", template=sam_file)
 
-    for read in sv_indicant_reads_in_contig:
-        extracted_reads_alignment_file.write(read)
-    extracted_reads_alignment_file.close()
+    # for read in sv_indicant_reads_in_contig:
+    #     extracted_reads_alignment_file.write(read)
+    # extracted_reads_alignment_file.close()
 
-    label = ('Contig_' + str(contig.metadata['node_number']) + '_length_' +
-            str(contig.num_bases) + '_' + str(read_category))
-    add_bam_track(
-            contig.parent_reference_genome, extracted_reads_bam_file, label)
+    # label = ('Contig_' + str(contig.metadata['node_number']) + '_length_' +
+    #         str(contig.num_bases) + '_' + str(read_category))
+    # add_bam_track(
+    #         contig.parent_reference_genome, extracted_reads_bam_file, label)
 
     return sv_indicant_reads_in_contig
 
@@ -450,6 +454,9 @@ def find_contig_insertion_endpoints(contig, read_unpacking_dir, left_clipped_sam
             if read.is_reverse:
                 reversed_complementarity_count += 1
 
+    if total_mapped_count == 0:
+        return {'error_string':
+                'Could not find sufficient homology to reference in contig'}
     REVERSED_COMPLEMENTARITY_FRACTION_CUTOFF = 0.75
     if reversed_complementarity_count / total_mapped_count > REVERSED_COMPLEMENTARITY_FRACTION_CUTOFF:
         contig.metadata['is_reverse'] = True
