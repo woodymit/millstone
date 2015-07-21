@@ -72,15 +72,10 @@ def generate_contigs(experiment_sample_to_alignment, contig_label_base):
                 experiment_sample_to_alignment,
                 project=reference_genome.project)
 
-    # Grab alignment bam file-path
-    alignment_bam = get_dataset_with_type(
-                experiment_sample_to_alignment,
-                Dataset.TYPE.BWA_ALIGN).get_absolute_location()
-
     # Get a bam of sorted SV indicants with pairs
     sv_indicants_bam = get_sv_indicating_reads(
-            data_dir, alignment_bam,
-            input_sv_indicant_types={'clipped': False})
+            data_dir, experiment_sample_to_alignment)
+            # input_sv_indicant_types={'clipped': False})
 
     # Find insertion metrics
     ins_length, ins_length_sd = get_insert_size_mean_and_stdev(
@@ -108,14 +103,20 @@ def generate_contigs(experiment_sample_to_alignment, contig_label_base):
 
 
 def get_sv_indicating_reads(
-        data_dir, alignment_bam, input_sv_indicant_types={}):
+        data_dir, experiment_sample_to_alignment, input_sv_indicant_types={}):
 
     sv_indicant_types = {
         'clipped': True,
         'split': True,
-        'unmapped': True
+        'unmapped': True,
+        'discordant': True
     }
     sv_indicant_types.update(input_sv_indicant_types)
+
+    # Grab alignment bam file-path
+    alignment_bam = get_dataset_with_type(
+            experiment_sample_to_alignment,
+            Dataset.TYPE.BWA_ALIGN).get_absolute_location()
 
     alignment_prefix = os.path.join(data_dir, 'bwa_align')
 
@@ -136,6 +137,12 @@ def get_sv_indicating_reads(
     get_clipped_reads(alignment_bam, clipped_reads)
     if sv_indicant_types['clipped']:
         sv_bams_list.append(clipped_reads)
+
+    if sv_indicant_types['discordant']:
+        discordant_reads = experiment_sample_to_alignment.dataset_set.get(
+                type=Dataset.TYPE.BWA_DISCORDANT).get_absolute_location()
+        sv_bams_list.append(discordant_reads)
+
 
     # Aggregate SV indicants
     SV_indicants_bam = alignment_prefix + '.SV_indicants.bam'
@@ -170,7 +177,7 @@ def get_sv_indicating_reads(
 
 def assemble_with_velvet(data_dir, velvet_opts, sv_indicants_bam,
         reference_genome, experiment_sample_to_alignment,
-        contig_label_base):
+        contig_label_base, velvet_dir_prefix=''):
 
     timestamp = str(datetime.datetime.now())
     contig_number_pattern = re.compile('^NODE_(\d+)_')
@@ -182,7 +189,7 @@ def assemble_with_velvet(data_dir, velvet_opts, sv_indicants_bam,
         velvet_opts['velveth']['hash_length'] = kmer_length
 
         # Run velvet assembly on SV indicants
-        velvet_dir = os.path.join(data_dir, 'velvet_k' + str(kmer_length))
+        velvet_dir = os.path.join(data_dir, velvet_dir_prefix + 'velvet_k' + str(kmer_length))
         run_velvet(
                 sv_indicants_bam,
                 velvet_dir,
@@ -232,6 +239,7 @@ def assemble_with_velvet(data_dir, velvet_opts, sv_indicants_bam,
 
 
 def add_bam_track(reference_genome, bam_file, label):
+    print 'add_bam_file_track entered'
     ag = AlignmentGroup.objects.create(
             reference_genome=reference_genome,
             label=label)
@@ -243,11 +251,16 @@ def add_bam_track(reference_genome, bam_file, label):
             experiment_sample=es)
     coordinate_sorted_bam = (os.path.splitext(bam_file)[0] +
             '.coordinate_sorted.bam')
+    print 'created related models'
     sort_bam_by_coordinate(bam_file, coordinate_sorted_bam)
+    print 'sorted bam'
     index_bam(coordinate_sorted_bam)
+    print 'indexed bam'
     add_dataset_to_entity(esta,
                 label,
                 Dataset.TYPE.BWA_ALIGN,
                 filesystem_location=coordinate_sorted_bam)
+    print 'about to add bam file track'
     add_bam_file_track(reference_genome, esta,
             Dataset.TYPE.BWA_ALIGN)
+    print 'added bam file track'

@@ -212,6 +212,26 @@ def _parse_sam_line(line):
     }
 
 
+# def add_paired_mates(input_sam_path, source_bam_filename, output_sam_path):
+
+#     original_alignmentfile = pysam.AlignmentFile(source_bam_filename)
+#     input_alignmentfile = pysam.AlignmentFile(input_sam_path)
+#     found_mates = []
+#     for read in input_alignmentfile:
+#         read.
+#             mate = original_alignmentfile.mate(read)
+#             found_mates.append(mate)
+#     print len(found_mates), 'mapped mates found'
+
+#     mates_of_unmapped_bam_file = os.path.join(
+#             contig.get_model_data_dir(), 'mates_of_unmapped.bam')
+#     mates_of_unmapped_alignment_file = pysam.AlignmentFile(
+#         mates_of_unmapped_bam_file, "wb", template=original_alignmentfile)
+#     for read in found_mates:
+#         mates_of_unmapped_alignment_file.write(read)
+#     mates_of_unmapped_alignment_file.close()
+
+
 def add_paired_mates(input_sam_path, source_bam_filename, output_sam_path):
     """Creates a file at output_sam_path that contains all the reads in
     input_sam_path, as well as all of their paired mates.
@@ -251,7 +271,8 @@ def add_paired_mates(input_sam_path, source_bam_filename, output_sam_path):
                 read_id_to_flags_map[read_id] = []
             if flags_value not in read_id_to_flags_map[read_id]:
                 read_id_to_flags_map[read_id].append(flags_value)
-            assert 1 <= len(read_id_to_flags_map[read_id]) <= 2
+            if 1 <= len(read_id_to_flags_map[read_id]) <= 2:
+                print 'read', read_id, 'has', len(read_id_to_flags_map[read_id]), 'reads with unique flags'
 
     # 3. Loop through bam file, appending lines whose pairs aren't already
     #    present.
