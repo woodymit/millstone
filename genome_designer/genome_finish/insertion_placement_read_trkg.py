@@ -29,6 +29,7 @@
 
 from collections import defaultdict
 import os
+import pickle
 import re
 import subprocess
 
@@ -153,11 +154,7 @@ def place_cassette(contig, insertion_placement_positions,
 
 def get_insertion_placement_positions(contig):
 
-    read_unpacking_dir = contig.get_model_data_dir()
-    if not os.path.exists(read_unpacking_dir):
-        os.mkdir(read_unpacking_dir)
-
-    contig_reads = extract_contig_reads(contig, read_unpacking_dir, 'all')
+    contig_reads = extract_contig_reads(contig, 'all')
     if len(contig_reads) == 0:
         return {'error_string':
                 'No clipped reads were assembled into the contig'}
@@ -189,7 +186,7 @@ def get_insertion_placement_positions(contig):
     right_clipped_same_end = right_clipped[ref_insertion_endpoints['left']]
 
     contig_insertion_endpoints = find_contig_insertion_endpoints(
-            contig, read_unpacking_dir, left_clipped_same_end,
+            contig, left_clipped_same_end,
             right_clipped_same_end)
 
     # Propogate error upwards
@@ -204,14 +201,26 @@ def get_insertion_placement_positions(contig):
 
 def extract_contig_reads(contig, read_category='all'):
 
-    READ_CATEGORY_TO_FILENAME = {
-        'all': 'bwa_align.SV_indicants_with_pairs.bam',
+    READ_CATEGORY_TO_FILENAME_DICT = {
         'without_mates': 'bwa_align.SV_indicants_no_dups.bam',
         'clipped': 'bwa_align.clipped.bam',
         'split': 'bwa_align.split.bam',
         'unmapped': 'bwa_align.unmapped.bam'
     }
-    assert read_category in READ_CATEGORY_TO_FILENAME
+
+    def _read_category_to_filename(read_category):
+        if read_category in READ_CATEGORY_TO_FILENAME_DICT:
+            return READ_CATEGORY_TO_FILENAME_DICT[read_category]
+        elif read_category == 'all':
+
+            assembly_metadata_file = os.path.join(
+                    contig.metadata['assembly_dir'],
+                    'metadata.txt')
+            with open(assembly_metadata_file) as fh:
+                assembly_metadata_obj = pickle.load(fh)
+            return assembly_metadata_obj['sv_indicants_bam']
+        else:
+            raise Exception('read category not recognized')
 
     extract_contig_reads_executable = os.path.join(
             settings.TOOLS_DIR,
@@ -241,10 +250,13 @@ def extract_contig_reads(contig, read_category='all'):
                 read_number = int(m1.group(2))
                 contig_reads[read_id].append(read_number)
 
+    # sv_indicant_reads_path = os.path.join(
+    #         contig.metadata['assembly_dir'],
+    #         '..',
+    #         READ_CATEGORY_TO_FILENAME[read_category])
     sv_indicant_reads_path = os.path.join(
-            contig.metadata['assembly_dir'],
-            '..',
-            READ_CATEGORY_TO_FILENAME[read_category])
+            contig.experiment_sample_to_alignment.get_model_data_dir(),
+            _read_category_to_filename(read_category))
 
     sam_file = pysam.AlignmentFile(sv_indicant_reads_path)
     sv_indicant_reads_in_contig = []
@@ -288,14 +300,17 @@ def extract_left_and_right_clipped_read_dicts(sv_indicant_reads_in_contig):
     left_clipped = defaultdict(list)
     right_clipped = defaultdict(list)
     for read in sv_indicant_reads_in_contig:
-        left_clipping = read.cigartuples[0][1] if read.cigartuples[0][0] in CLIP else 0
-        right_clipping = read.cigartuples[-1][1] if read.cigartuples[-1][0] in CLIP else 0
-        is_left_clipped = left_clipping > right_clipping
-        is_right_clipped = right_clipping > left_clipping
-        if is_left_clipped:
-            left_clipped[read.reference_start].append(read)
-        elif is_right_clipped:
-            right_clipped[read.reference_end].append(read)
+        if read.cigartuples is not None:
+            left_clipping = (read.cigartuples[0][1]
+                    if read.cigartuples[0][0] in CLIP else 0)
+            right_clipping = (read.cigartuples[-1][1]
+                    if read.cigartuples[-1][0] in CLIP else 0)
+            is_left_clipped = left_clipping > right_clipping
+            is_right_clipped = right_clipping > left_clipping
+            if is_left_clipped:
+                left_clipped[read.reference_start].append(read)
+            elif is_right_clipped:
+                right_clipped[read.reference_end].append(read)
 
     return {
         'left_clipped': left_clipped,
@@ -391,7 +406,8 @@ def simple_align_with_bwa_mem(reads_fq, reference_fasta, output_bam_path):
 
 
 def get_reads_with_mode_attribute(clipped_alignment_bam, get_attr_function,
-                                  mode_difference_cutoff=ENDPOINT_MODE_DIFFERENCE_CUTOFF):
+        mode_difference_cutoff=ENDPOINT_MODE_DIFFERENCE_CUTOFF):
+
     alignment_ref_clip_positions = defaultdict(list)
     sam_file = pysam.AlignmentFile(clipped_alignment_bam)
     for read in sam_file:
@@ -399,9 +415,12 @@ def get_reads_with_mode_attribute(clipped_alignment_bam, get_attr_function,
         alignment_ref_clip_positions[get_attr_function(read)].append(read)
         # alignment_ref_end_positions[read.reference_end].append(read)
 
-    alignment_ref_clip_positions_sorted = sorted(alignment_ref_clip_positions.items(), key=lambda x:len(x[1]), reverse=True)
+    alignment_ref_clip_positions_sorted = sorted(
+            alignment_ref_clip_positions.items(),
+            key=lambda x: len(x[1]), reverse=True)
     highest_consensus = len(alignment_ref_clip_positions_sorted[0][1])
-    second_highest_consensus = len(alignment_ref_clip_positions_sorted[1][1]) if len(alignment_ref_clip_positions_sorted) > 1 else 0
+    second_highest_consensus = (len(alignment_ref_clip_positions_sorted[1][1])
+            if len(alignment_ref_clip_positions_sorted) > 1 else 0)
     if highest_consensus - second_highest_consensus > mode_difference_cutoff:
         endpoint = alignment_ref_clip_positions_sorted[0][0]
     else:
@@ -410,30 +429,41 @@ def get_reads_with_mode_attribute(clipped_alignment_bam, get_attr_function,
     return endpoint
 
 
-def find_contig_insertion_endpoints(contig, read_unpacking_dir, left_clipped_same_end, right_clipped_same_end):
+def find_contig_insertion_endpoints(contig,
+        left_clipped_same_end, right_clipped_same_end):
     """ left_clipped_same_end/right_clipped_same_end are lists of
     left and right clipped reads all with the same left/right
     alignment endpoint, corresponding to the reference insertion
     right/left endpoint
     """
     # TODO: Handle case of same query_name reads being added to same fastq
-    right_clipped_query_names = [read.query_name for read in right_clipped_same_end]
-    assert len(right_clipped_query_names) == len(set(right_clipped_query_names))
+    right_clipped_query_names = [read.query_name
+            for read in right_clipped_same_end]
+    assert (len(right_clipped_query_names) ==
+            len(set(right_clipped_query_names)))
 
     # Write left and right clipped query alignment sequences to fastq
+    contig_dir = contig.get_model_data_dir()
     right_clipped_query_alignment_fq = os.path.join(
-            read_unpacking_dir, 'right_clipped_query_alignment_seqs.fq')
-    write_read_query_alignments_to_fastq(right_clipped_same_end,
-                                         right_clipped_query_alignment_fq)
+            contig_dir,
+            'right_clipped_query_alignment_seqs.fq')
+    write_read_query_alignments_to_fastq(
+            right_clipped_same_end,
+            right_clipped_query_alignment_fq)
+
     left_clipped_query_alignment_fq = os.path.join(
-            read_unpacking_dir, 'left_clipped_query_alignment_seqs.fq')
-    write_read_query_alignments_to_fastq(left_clipped_same_end,
-                                         left_clipped_query_alignment_fq)
+            contig_dir,
+            'left_clipped_query_alignment_seqs.fq')
+    write_read_query_alignments_to_fastq(
+            left_clipped_same_end,
+            left_clipped_query_alignment_fq)
 
     # Get BAM filenames for right_clipped and left_clipped alignments
-    right_clipped_to_contig_bam = os.path.join(read_unpacking_dir,
+    right_clipped_to_contig_bam = os.path.join(
+            contig_dir,
             'right_clipped_to_contig.bwa_align.bam')
-    left_clipped_to_contig_bam = os.path.join(read_unpacking_dir,
+    left_clipped_to_contig_bam = os.path.join(
+            contig_dir,
             'left_clipped_to_contig.bwa_align.bam')
 
 
@@ -458,13 +488,15 @@ def find_contig_insertion_endpoints(contig, read_unpacking_dir, left_clipped_sam
         return {'error_string':
                 'Could not find sufficient homology to reference in contig'}
     REVERSED_COMPLEMENTARITY_FRACTION_CUTOFF = 0.75
-    if reversed_complementarity_count / total_mapped_count > REVERSED_COMPLEMENTARITY_FRACTION_CUTOFF:
+    if (reversed_complementarity_count / total_mapped_count >
+            REVERSED_COMPLEMENTARITY_FRACTION_CUTOFF):
         contig.metadata['is_reverse'] = True
         contig.save()
 
     # Write reverse complement of contig to file if is reverse
     if contig.metadata.get('is_reverse', False):
-        rc_contig_fasta = os.path.splitext(contig_fasta)[0] + '.reverse_complement.fa'
+        rc_contig_fasta = (os.path.splitext(contig_fasta)[0] +
+                '.reverse_complement.fa')
         contig_seqrecord = SeqIO.parse(contig_fasta, 'fasta').next()
         contig_seqrecord.seq = contig_seqrecord.seq.reverse_complement()
         SeqIO.write(contig_seqrecord, rc_contig_fasta, 'fasta')
@@ -485,8 +517,10 @@ def find_contig_insertion_endpoints(contig, read_unpacking_dir, left_clipped_sam
                 left_clipped_to_contig_bam)
 
     # Find contig endpoints
-    contig_ins_left_end = get_reads_with_mode_attribute(right_clipped_to_contig_bam, lambda r:r.reference_end)
-    contig_ins_right_end = get_reads_with_mode_attribute(left_clipped_to_contig_bam, lambda r:r.reference_start)
+    contig_ins_left_end = get_reads_with_mode_attribute(
+            right_clipped_to_contig_bam, lambda r: r.reference_end)
+    contig_ins_right_end = get_reads_with_mode_attribute(
+            left_clipped_to_contig_bam, lambda r: r.reference_start)
 
     return {
         'left': contig_ins_left_end,
