@@ -1376,7 +1376,8 @@ def generate_contigs(request):
 
     # Generate a list of fasta file paths to the contigs
     contig_filepaths = assembly.generate_contigs(
-            experiment_sample_to_alignment, contig_label_base)
+            experiment_sample_to_alignment,
+            contig_label_base=contig_label_base)
 
     # Check if contigs exist
     are_no_contigs = all([os.stat(contig_filepath).st_size == 0

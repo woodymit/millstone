@@ -1,4 +1,5 @@
 import datetime
+import pickle
 import os
 import re
 
@@ -7,7 +8,6 @@ from Bio import SeqIO
 from genome_finish.millstone_de_novo_fns import add_paired_mates
 from genome_finish.millstone_de_novo_fns import get_clipped_reads
 from genome_finish.millstone_de_novo_fns import get_unmapped_reads
-from genome_finish.millstone_de_novo_fns import get_split_reads
 from genome_finish.millstone_de_novo_fns import run_velvet
 from main.models import Contig
 from main.models import Dataset
@@ -32,76 +32,89 @@ from utils.jbrowse_util import add_bam_file_track
 
 # Default args for velvet assembly
 VELVET_COVERAGE_CUTOFF = 10
-VELVET_KMER_LIST = [21]
+VELVET_HASH_LENGTH = 21
+
+DEFAULT_VELVET_OPTS = {
+    'velveth': {
+        'hash_length': VELVET_HASH_LENGTH,
+        'shortPaired': ''
+    },
+    'velvetg': {
+        'read_trkg': 'yes',
+        'cov_cutoff': VELVET_COVERAGE_CUTOFF
+    }
+}
 
 
-def generate_contigs(experiment_sample_to_alignment, contig_label_base):
+def generate_contigs(sample_alignment,
+        sv_read_classes={}, input_velvet_opts={}, contig_label_base='',
+        overwrite=False):
 
-    # Grab reference genome fasta path
-    reference_genome = (
-            experiment_sample_to_alignment.alignment_group.reference_genome)
+    contig_label_base = '' # Force for now
+
+    # Grab reference genome fasta path, ensure indexed
+    reference_genome = sample_alignment.alignment_group.reference_genome
     ref_fasta_dataset = reference_genome.dataset_set.get_or_create(
             type=Dataset.TYPE.REFERENCE_GENOME_FASTA)[0]
     prepare_ref_genome_related_datasets(reference_genome, ref_fasta_dataset)
 
     # Make data_dir directory to house genome_finishing files
-    genome_finishing_dir = os.path.join(
-            experiment_sample_to_alignment.get_model_data_dir(),
-            'genome_finishing')
+    assembly_dir = os.path.join(
+            sample_alignment.get_model_data_dir(),
+            'assembly')
 
-    # Make data_dir directory if it does not exist
-    if not os.path.exists(genome_finishing_dir):
-        os.mkdir(genome_finishing_dir)
+    # Make assembly directory if it does not exist
+    if not os.path.exists(assembly_dir):
+        os.mkdir(assembly_dir)
 
-    data_dir = os.path.join(genome_finishing_dir, '0')
     data_dir_counter = 0
+    data_dir = os.path.join(assembly_dir, str(data_dir_counter))
     while(os.path.exists(data_dir)):
         data_dir_counter += 1
-        data_dir = os.path.join(genome_finishing_dir, str(data_dir_counter))
+        data_dir = os.path.join(assembly_dir, str(data_dir_counter))
     os.mkdir(data_dir)
 
-    # Retrieve bwa mem .bam alignment if exists otherwise generate it
-    if not experiment_sample_to_alignment.dataset_set.filter(
-            type=Dataset.TYPE.BWA_ALIGN).exists():
-        add_dataset_to_entity(
-                experiment_sample_to_alignment,
-                'sample_alignment_for_assembly',
-                Dataset.TYPE.BWA_ALIGN)
-        align_with_bwa_mem(
-                experiment_sample_to_alignment.alignment_group,
-                experiment_sample_to_alignment,
-                project=reference_genome.project)
+    # # Retrieve bwa mem .bam alignment if exists otherwise generate it
+    # if not sample_alignment.dataset_set.filter(
+    #         type=Dataset.TYPE.BWA_ALIGN).exists():
+    #     add_dataset_to_entity(
+    #             sample_alignment,
+    #             'sample_alignment_for_assembly',
+    #             Dataset.TYPE.BWA_ALIGN)
+    #     align_with_bwa_mem(
+    #             sample_alignment.alignment_group,
+    #             sample_alignment,
+    #             project=reference_genome.project)
 
     # Get a bam of sorted SV indicants with pairs
-    sv_indicants_bam = get_sv_indicating_reads(experiment_sample_to_alignment)
-            # input_sv_indicant_types={'clipped': False})
+    sv_indicants_bam = get_sv_indicating_reads(sample_alignment,
+            sv_read_classes, overwrite=overwrite)
+
+    velvet_opts = DEFAULT_VELVET_OPTS
 
     # Find insertion metrics
     ins_length, ins_length_sd = get_insert_size_mean_and_stdev(
-            experiment_sample_to_alignment)
+            sample_alignment)
+    velvet_opts['velvetg']['ins_length'] = ins_length
+    velvet_opts['velvetg']['ins_length_sd'] = ins_length_sd
 
-    velvet_opts = {
-        'velveth': {
-            'shortPaired': ''
-        },
-        'velvetg': {
-            'read_trkg': 'yes',
-            'ins_length': ins_length,
-            'ins_length_sd': ins_length_sd,
-            'cov_cutoff': VELVET_COVERAGE_CUTOFF,
-        }
-    }
+    for shallow_key in ['velveth', 'velvetg']:
+        if shallow_key in input_velvet_opts:
+            for deep_key in input_velvet_opts[shallow_key]:
+                velvet_opts[shallow_key][deep_key] = (
+                        input_velvet_opts[shallow_key][deep_key])
 
     # Perform velvet assembly
     contig_files = assemble_with_velvet(
             data_dir, velvet_opts, sv_indicants_bam,
-            reference_genome, experiment_sample_to_alignment,
+            sample_alignment,
             contig_label_base)
 
     return contig_files
 
 
-def get_sv_indicating_reads(sample_alignment, input_sv_indicant_classes={}):
+def get_sv_indicating_reads(sample_alignment, input_sv_indicant_classes={},
+        overwrite=False):
 
     sv_indicant_keys = [
             Dataset.TYPE.BWA_CLIPPED,
@@ -128,7 +141,6 @@ def get_sv_indicating_reads(sample_alignment, input_sv_indicant_classes={}):
             Dataset.TYPE.BWA_UNMAPPED: True,
             Dataset.TYPE.BWA_DISCORDANT: True
     }
-
     default_sv_indicant_classes.update(input_sv_indicant_classes)
 
     # Grab alignment bam file-path
@@ -177,11 +189,19 @@ def get_sv_indicating_reads(sample_alignment, input_sv_indicant_classes={}):
                     if default_sv_indicant_classes[k]])
             ])
 
+    SV_indicants_with_pairs_bam = compilation_prefix + '.with_pairs.bam'
+    if os.path.exists(SV_indicants_with_pairs_bam) and not overwrite:
+        print ('WARNING: Requested SV indicants bam file: ' +
+                SV_indicants_with_pairs_bam +
+                ' already exists and will be returned by this function.  ' +
+                'To overwrite this file pass the keyword overwrite=True')
+        return SV_indicants_with_pairs_bam
+    if overwrite:
+        print ('WARNING: overwrite is True, so SV read bam datasets ' +
+                'are being overwritten')
+
     # Aggregate SV indicants
     SV_indicants_bam = compilation_prefix + '.bam'
-    if os.path.exists(SV_indicants_bam):
-        raise Exception(SV_indicants_bam + ' already exists')
-
     concatenate_bams(
             sv_bams_list,
             SV_indicants_bam)
@@ -202,7 +222,6 @@ def get_sv_indicating_reads(sample_alignment, input_sv_indicant_classes={}):
             SV_indicants_sam, alignment_bam, SV_indicants_with_pairs_sam)
 
     # Make bam of SV indicants w/mate pairs
-    SV_indicants_with_pairs_bam = compilation_prefix + '.with_pairs.bam'
     make_bam(SV_indicants_with_pairs_sam, SV_indicants_with_pairs_bam)
 
     # Sort for velvet assembly
@@ -213,64 +232,65 @@ def get_sv_indicating_reads(sample_alignment, input_sv_indicant_classes={}):
 
 
 def assemble_with_velvet(data_dir, velvet_opts, sv_indicants_bam,
-        reference_genome, experiment_sample_to_alignment,
-        contig_label_base, velvet_dir_prefix=''):
+        sample_alignment, contig_label_base=''):
 
     timestamp = str(datetime.datetime.now())
     contig_number_pattern = re.compile('^NODE_(\d+)_')
 
+    reference_genome = sample_alignment.alignment_group.reference_genome
+
     contig_files = []
-    kmer_list = VELVET_KMER_LIST
-    for kmer_length in kmer_list:
-        # Set hash length argument for velveth
-        velvet_opts['velveth']['hash_length'] = kmer_length
 
-        # Run velvet assembly on SV indicants
-        velvet_dir = os.path.join(data_dir, velvet_dir_prefix + 'velvet_k' + str(kmer_length))
-        run_velvet(
-                sv_indicants_bam,
-                velvet_dir,
-                velvet_opts)
+    # Write sv_indicants filename and velvet options to file
+    assembly_metadata_fn = os.path.join(data_dir, 'metadata.txt')
+    with open(assembly_metadata_fn, 'w') as fh:
+        assembly_metadata = {
+            'sv_indicants_bam': sv_indicants_bam,
+            'velvet_opts': velvet_opts
+        }
+        pickle.dump(assembly_metadata, fh)
 
-        # Collect resulting contigs fasta
-        contigs_fasta = os.path.join(velvet_dir, 'contigs.fa')
-        contig_files.append(contigs_fasta)
+    # Run velvet assembly on SV indicants
+    run_velvet(
+            sv_indicants_bam,
+            data_dir,
+            velvet_opts)
 
-        for seq_record in SeqIO.parse(contigs_fasta, 'fasta'):
+    # Collect resulting contigs fasta
+    contigs_fasta = os.path.join(data_dir, 'contigs.fa')
+    contig_files.append(contigs_fasta)
 
-            contig_label = '_'.join(
-                    [contig_label_base, seq_record.description])
+    for seq_record in SeqIO.parse(contigs_fasta, 'fasta'):
 
-            # Create an insertion model for the contig
-            contig = Contig.objects.create(
-                    label=contig_label,
-                    parent_reference_genome=reference_genome,
-                    experiment_sample_to_alignment=(
-                            experiment_sample_to_alignment))
+        contig_label = '_'.join(
+                [contig_label_base, seq_record.description])
 
-            contig.metadata['coverage'] = float(
-                    seq_record.description.rsplit('_', 1)[1])
+        # Create an insertion model for the contig
+        contig = Contig.objects.create(
+                label=contig_label,
+                parent_reference_genome=reference_genome,
+                experiment_sample_to_alignment=(
+                        sample_alignment))
 
-            contig.metadata['timestamp'] = timestamp
+        contig.metadata['coverage'] = float(
+                seq_record.description.rsplit('_', 1)[1])
+        contig.metadata['timestamp'] = timestamp
+        contig.metadata['node_number'] = int(
+                contig_number_pattern.findall(seq_record.description)[0])
+        contig.metadata['assembly_dir'] = data_dir
 
-            contig.metadata['node_number'] = int(contig_number_pattern.findall(
-                    seq_record.description)[0])
+        contig.ensure_model_data_dir_exists()
+        dataset_path = os.path.join(contig.get_model_data_dir(),
+                'fasta.fa')
 
-            contig.metadata['assembly_dir'] = velvet_dir
+        with open(dataset_path, 'w') as fh:
+            SeqIO.write([seq_record], fh, 'fasta')
 
-            contig.ensure_model_data_dir_exists()
-
-            dataset_path = os.path.join(contig.get_model_data_dir(),
-                    'fasta.fa')
-
-            with open(dataset_path, 'w') as fh:
-                SeqIO.write([seq_record], fh, 'fasta')
-
-            add_dataset_to_entity(
-                    contig,
-                    'contig_fasta',
-                    Dataset.TYPE.REFERENCE_GENOME_FASTA,
-                    filesystem_location=dataset_path)
+        add_dataset_to_entity(
+                contig,
+                'contig_fasta',
+                Dataset.TYPE.REFERENCE_GENOME_FASTA,
+                filesystem_location=dataset_path)
 
     return contig_files
 
