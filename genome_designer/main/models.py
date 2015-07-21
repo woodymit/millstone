@@ -106,6 +106,8 @@ class Dataset(UniqueUidModelMixin):
         BWA_DISCORDANT = 'BWA BAM Discordant Paired Reads'
         BWA_SPLIT = 'BWA BAM Split Reads'
         BWA_UNMAPPED = 'BWA Unmapped Reads'
+        BWA_CLIPPED = 'BWA Clipped Reads'
+        BWA_SV_INDICANTS = 'BWA Structural Variant Indicating Reads'
         BWA_FOR_DE_NOVO_ASSEMBLY = 'BWA for De Novo Assembly'
         BWA_ALIGN_ERROR = 'BWA Alignment Error'
         VCF_FREEBAYES = 'Freebayes VCF'
@@ -136,6 +138,8 @@ class Dataset(UniqueUidModelMixin):
         TYPE.BWA_ALIGN : 'experimentsampletoalignment_set',
         TYPE.BWA_DISCORDANT : 'experimentsampletoalignment_set',
         TYPE.BWA_SPLIT : 'experimentsampletoalignment_set',
+        TYPE.BWA_CLIPPED: 'experimentsampletoalignment_set',
+        TYPE.BWA_SV_INDICANTS: 'experimentsampletoalignment_set',
         TYPE.BWA_ALIGN_ERROR : 'alignmentgroup_set',
         TYPE.VCF_FREEBAYES : 'alignmentgroup_set',
         TYPE.VCF_PINDEL : 'alignmentgroup_set',

@@ -31,7 +31,7 @@ from utils.bam_utils import sort_bam_by_coordinate
 from utils.jbrowse_util import add_bam_file_track
 
 # Default args for velvet assembly
-VELVET_COVERAGE_CUTOFF = 30
+VELVET_COVERAGE_CUTOFF = 10
 VELVET_KMER_LIST = [21]
 
 
@@ -73,8 +73,7 @@ def generate_contigs(experiment_sample_to_alignment, contig_label_base):
                 project=reference_genome.project)
 
     # Get a bam of sorted SV indicants with pairs
-    sv_indicants_bam = get_sv_indicating_reads(
-            data_dir, experiment_sample_to_alignment)
+    sv_indicants_bam = get_sv_indicating_reads(experiment_sample_to_alignment)
             # input_sv_indicant_types={'clipped': False})
 
     # Find insertion metrics
@@ -102,74 +101,112 @@ def generate_contigs(experiment_sample_to_alignment, contig_label_base):
     return contig_files
 
 
-def get_sv_indicating_reads(
-        data_dir, experiment_sample_to_alignment, input_sv_indicant_types={}):
+def get_sv_indicating_reads(sample_alignment, input_sv_indicant_classes={}):
 
-    sv_indicant_types = {
-        'clipped': True,
-        'split': True,
-        'unmapped': True,
-        'discordant': True
+    sv_indicant_keys = [
+            Dataset.TYPE.BWA_CLIPPED,
+            Dataset.TYPE.BWA_SPLIT,
+            Dataset.TYPE.BWA_UNMAPPED,
+            Dataset.TYPE.BWA_DISCORDANT
+    ]
+
+    sv_indicant_class_to_filename_suffix = {
+            Dataset.TYPE.BWA_CLIPPED: 'clipped',
+            Dataset.TYPE.BWA_SPLIT: 'split',
+            Dataset.TYPE.BWA_UNMAPPED: 'unmapped',
+            Dataset.TYPE.BWA_DISCORDANT: 'discordant'
     }
-    sv_indicant_types.update(input_sv_indicant_types)
+
+    sv_indicant_class_to_generator = {
+            Dataset.TYPE.BWA_CLIPPED: get_clipped_reads,
+            Dataset.TYPE.BWA_UNMAPPED: get_unmapped_reads
+    }
+
+    default_sv_indicant_classes = {
+            Dataset.TYPE.BWA_CLIPPED: True,
+            Dataset.TYPE.BWA_SPLIT: True,
+            Dataset.TYPE.BWA_UNMAPPED: True,
+            Dataset.TYPE.BWA_DISCORDANT: True
+    }
+
+    default_sv_indicant_classes.update(input_sv_indicant_classes)
 
     # Grab alignment bam file-path
     alignment_bam = get_dataset_with_type(
-            experiment_sample_to_alignment,
+            sample_alignment,
             Dataset.TYPE.BWA_ALIGN).get_absolute_location()
 
-    alignment_prefix = os.path.join(data_dir, 'bwa_align')
-
-    # Extract SV indicating reads
+    # Get SV indicating reads
     sv_bams_list = []
+    alignment_file_prefix = os.path.join(
+            sample_alignment.get_model_data_dir(),
+            'bwa_align')
 
-    unmapped_reads = alignment_prefix + '.unmapped.bam'
-    get_unmapped_reads(alignment_bam, unmapped_reads)
-    if sv_indicant_types['unmapped']:
-        sv_bams_list.append(unmapped_reads)
+    # Helper function for getting sv read datasets
+    def _get_or_create_sv_dataset(key):
+        dataset_query = sample_alignment.dataset_set.filter(type=key)
 
-    split_reads = alignment_prefix + '.split.bam'
-    get_split_reads(alignment_bam, split_reads)
-    if sv_indicant_types['split']:
-        sv_bams_list.append(split_reads)
-
-    clipped_reads = alignment_prefix + '.clipped.bam'
-    get_clipped_reads(alignment_bam, clipped_reads)
-    if sv_indicant_types['clipped']:
-        sv_bams_list.append(clipped_reads)
-
-    if sv_indicant_types['discordant']:
-        discordant_reads = experiment_sample_to_alignment.dataset_set.get(
-                type=Dataset.TYPE.BWA_DISCORDANT).get_absolute_location()
-        sv_bams_list.append(discordant_reads)
-
+        if dataset_query.exists():
+            assert len(dataset_query) == 1
+            return dataset_query[0]
+        else:
+            dataset_path = '.'.join([
+                    alignment_file_prefix,
+                    sv_indicant_class_to_filename_suffix[key],
+                    'bam'
+                    ])
+            generator = sv_indicant_class_to_generator[key]
+            generator(alignment_bam, dataset_path)
+            return add_dataset_to_entity(
+                    sample_alignment,
+                    sv_indicant_class_to_filename_suffix[key],
+                    key,
+                    filesystem_location=dataset_path)
 
     # Aggregate SV indicants
-    SV_indicants_bam = alignment_prefix + '.SV_indicants.bam'
+    for key in sv_indicant_keys:
+        if default_sv_indicant_classes[key]:
+            dataset = _get_or_create_sv_dataset(key)
+            sv_bams_list.append(dataset.get_absolute_location())
+
+
+    compilation_prefix = '.'.join([
+            alignment_file_prefix,
+            '_'.join([sv_indicant_class_to_filename_suffix[k] for k in
+                    sorted(sv_indicant_keys)
+                    if default_sv_indicant_classes[k]])
+            ])
+
+    # Aggregate SV indicants
+    SV_indicants_bam = compilation_prefix + '.bam'
+    if os.path.exists(SV_indicants_bam):
+        raise Exception(SV_indicants_bam + ' already exists')
+
     concatenate_bams(
             sv_bams_list,
             SV_indicants_bam)
 
     # Remove duplicates
-    SV_indicants_no_dups_bam = alignment_prefix + '.SV_indicants_no_dups.bam'
+    print 'removing duplicates'
+    SV_indicants_no_dups_bam = compilation_prefix + '.no_dups.bam'
     rmdup(SV_indicants_bam, SV_indicants_no_dups_bam)
 
     # Convert SV indicants bam to sam
-    SV_indicants_sam = alignment_prefix + '.SV_indicants.sam'
+    SV_indicants_sam = compilation_prefix + '.no_dups.sam'
     make_sam(SV_indicants_no_dups_bam, SV_indicants_sam)
 
     # Add mate pairs to SV indicants sam
-    SV_indicants_with_pairs_sam = (
-        alignment_prefix + '.SV_indicants_with_pairs.sam')
+    print 'adding mate pairs'
+    SV_indicants_with_pairs_sam = compilation_prefix + '.with_pairs.sam'
     add_paired_mates(
             SV_indicants_sam, alignment_bam, SV_indicants_with_pairs_sam)
 
     # Make bam of SV indicants w/mate pairs
-    SV_indicants_with_pairs_bam = (
-        alignment_prefix + '.SV_indicants_with_pairs.bam')
+    SV_indicants_with_pairs_bam = compilation_prefix + '.with_pairs.bam'
     make_bam(SV_indicants_with_pairs_sam, SV_indicants_with_pairs_bam)
 
     # Sort for velvet assembly
+    print 'sorting by name'
     sort_bam_by_name(SV_indicants_with_pairs_bam)
 
     return SV_indicants_with_pairs_bam
