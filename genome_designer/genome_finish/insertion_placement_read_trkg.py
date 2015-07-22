@@ -152,12 +152,21 @@ def place_cassette(contig, insertion_placement_positions,
             new_reference_genome_params)
 
 
-def get_insertion_placement_positions(contig):
+def get_insertion_placement_positions(contig,
+        strategy='mapped_mates_of_unmapped'):
 
-    contig_reads = extract_contig_reads(contig, 'all')
+    def _get_contig_reads_using_strategy(strategy):
+        if strategy == 'all_reads':
+            return extract_contig_reads(contig, 'all')
+        elif strategy == 'mapped_mates_of_unmapped':
+            return mapped_mates_of_unmapped_reads(contig)
+        else:
+            raise Exception(str(strategy) + ' not a recognized strategy')
+
+    contig_reads = _get_contig_reads_using_strategy(strategy)
     if len(contig_reads) == 0:
-        return {'error_string':
-                'No clipped reads were assembled into the contig'}
+            return {'error_string':
+                    'No clipped reads were assembled into the contig'}
 
     extracted_clipped_read_dicts = extract_left_and_right_clipped_read_dicts(
             contig_reads)
@@ -199,6 +208,25 @@ def get_insertion_placement_positions(contig):
     }
 
 
+def mapped_mates_of_unmapped_reads(contig):
+    unmapped_contig_reads = extract_contig_reads(
+            contig, read_category='unmapped')
+    print len(unmapped_contig_reads), 'unmapped reads in contig'
+
+    original_align = contig.experiment_sample_to_alignment.dataset_set.get(
+            type=Dataset.TYPE.BWA_ALIGN).get_absolute_location()
+    original_alignmentfile = pysam.AlignmentFile(original_align)
+    found_mates = []
+    for read in unmapped_contig_reads:
+        if not read.mate_is_unmapped:
+            mate = original_alignmentfile.mate(read)
+            found_mates.append(mate)
+    original_alignmentfile.close()
+
+    print len(found_mates), 'mapped mates found'
+    return found_mates
+
+
 def extract_contig_reads(contig, read_category='all'):
 
     READ_CATEGORY_TO_FILENAME_DICT = {
@@ -219,6 +247,8 @@ def extract_contig_reads(contig, read_category='all'):
             with open(assembly_metadata_file) as fh:
                 assembly_metadata_obj = pickle.load(fh)
             return assembly_metadata_obj['sv_indicants_bam']
+        elif read_category == 'mates_of_unmapped':
+            return mapped_mates_of_unmapped_reads(contig)
         else:
             raise Exception('read category not recognized')
 
