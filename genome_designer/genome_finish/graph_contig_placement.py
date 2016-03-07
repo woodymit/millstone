@@ -123,8 +123,6 @@ def graph_contig_placement(contig_list, skip_extracted_read_alignment,
         contig_alignment_to_me_bam = os.path.join(
                 contig_alignment_dir, 'contig_alignment_to_me.bam')
         ensure_bwa_index(me_concat_fasta)
-        import ipdb
-        ipdb.set_trace()
         simple_align_with_bwa_mem(
                 contig_concat,
                 me_concat_fasta,
@@ -219,9 +217,6 @@ def graph_contig_placement(contig_list, skip_extracted_read_alignment,
     else:
         print 'Translocation walk not implemented for multi-chromosomal refs'
         var_dict_list = []
-
-    import ipdb
-    ipdb.set_trace()
 
     print 'len(trans_iv_pairs):', len(trans_iv_pairs)
 
@@ -576,9 +571,6 @@ def translocation_walk(G):
     sorted_by_enter_ref = sorted(forward_edges + back_edges,
             key=lambda x: x.enter_ref.pos)
 
-    import ipdb
-    ipdb.set_trace()
-
     iv_pairs = []
     me_iv_pairs = []
     i = 0
@@ -759,9 +751,6 @@ def make_contig_reads_to_ref_alignments(contig):
 def parse_path_into_ref_alt(path_list, contig_qname_to_uid,
         sample_alignment):
 
-    # import ipdb
-    # ipdb.set_trace()
-
     ref_genome = sample_alignment.alignment_group.reference_genome
     ref_uid = ref_genome.uid
     ref_fasta = get_fasta(ref_genome)
@@ -771,10 +760,13 @@ def parse_path_into_ref_alt(path_list, contig_qname_to_uid,
         ref_chromosome = ref_seqrecord.id
 
     def _seq_str(enter_vert, exit_vert):
+        print 'seq_str called'
         if enter_vert.seq_uid == ref_uid:
+            print 'seq_str returned ref sequence'
             return ref_seq[enter_vert.pos: exit_vert.pos]
 
         if enter_vert.seq_uid.startswith('ME_'):
+            print 'seq_str should return ME sequence'
             me_fasta = sample_alignment.dataset_set.get(
                     type=Dataset.TYPE.MOBILE_ELEMENT_FASTA
                     ).get_absolute_location()
@@ -783,11 +775,14 @@ def parse_path_into_ref_alt(path_list, contig_qname_to_uid,
                     if sr.id == enter_vert.seq_uid).next()
 
             if enter_vert.pos < exit_vert.pos:
+                print 'ME seq str:', str(seq_rec.seq[enter_vert.pos: exit_vert.pos])
                 return str(seq_rec.seq[enter_vert.pos: exit_vert.pos])
             else:
-                return str(seq_rec.seq[exit_vert.pos: enter_vert.pos: -1])
+                print 'ME seq str REVERSE:', str(seq_rec.seq[enter_vert.pos: exit_vert.pos: -1])
+                return str(seq_rec.seq[enter_vert.pos: exit_vert.pos: -1])
 
 
+        print 'seq_str should return contig sequence'
         contig_qname = enter_vert.seq_uid
         contig_uid = contig_qname_to_uid[contig_qname]
         contig = Contig.objects.get(uid=contig_uid)
@@ -817,8 +812,14 @@ def parse_path_into_ref_alt(path_list, contig_qname_to_uid,
     for enter_vert, exit_vert in _seq_interval_iter():
 
         seq_len = exit_vert.pos - enter_vert.pos
+        seq_uid = enter_vert.seq_uid
+        if seq_uid.startswith('ME_'):
+            if seq_len == 0:
+                seq_list.append('')
+            else:
+                seq_list.append(_seq_str(enter_vert, exit_vert))
 
-        if seq_len < 0:
+        elif seq_len < 0:
             seq_list.append(seq_len)
         elif seq_len > 0:
             seq_list.append(_seq_str(enter_vert, exit_vert))
@@ -843,6 +844,13 @@ def parse_path_into_ref_alt(path_list, contig_qname_to_uid,
                 alt_seq += seq
 
     ref_seq = ref_seq[ref_start: ref_end]
+
+    print 'parsed variant:', {
+        'chromosome': ref_chromosome,
+        'pos': ref_start,
+        'ref_seq': ref_seq,
+        'alt_seq': alt_seq
+    }
 
     return {
         'chromosome': ref_chromosome,

@@ -305,6 +305,9 @@ class TestGraphWalk(TestCase):
         variant_set = create_de_novo_variants_set(
                 alignment_group, 'de_novo_variants')
 
+        import ipdb
+        ipdb.set_trace()
+
         self.assertTrue(variant_set.variants.exists())
         self.assertEqual(len(variant_set.variants.all()), 1)
 
