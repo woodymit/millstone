@@ -17,6 +17,8 @@ from main.models import Contig
 from main.models import Dataset
 from main.models import ExperimentSampleToAlignment
 from main.models import ReferenceGenome
+from pipeline.read_alignment_util import ensure_bwa_index
+from utils.import_util import add_dataset_to_entity
 
 MAX_DELETION = 100000
 MAX_DUP = 10
@@ -26,6 +28,53 @@ MIN_TRANS_LENGTH = 20
 MAX_TRANS_DELETION = 20000
 InsertionVertices = namedtuple('InsertionVertices',
         ['exit_ref', 'enter_contig', 'exit_contig', 'enter_ref'])
+
+
+def get_genbank_features_with_type(genbank_path, feature_type=None):
+
+    chrom_intervals = {}
+    with open(genbank_path, 'r') as fh:
+        for seq_record in SeqIO.parse(fh, 'genbank'):
+            interval_list = []
+            for f in seq_record.features:
+                if feature_type and f.type == feature_type:
+                    interval_list.append((f, f.extract(seq_record.seq)))
+
+            chrom_intervals[seq_record.id] = interval_list
+
+    return chrom_intervals
+
+
+def write_me_features_multifasta(genbank_path, output_fasta_path,
+        also_inversions=False):
+    """Write mobile elements to file
+    """
+    me_features = get_genbank_features_with_type(
+            genbank_path, 'mobile_element')
+    me_sequences = {}
+    # print 'me_features:', me_features
+    for chrom, feature_seq_tuples in me_features.items():
+        for feature, seq in feature_seq_tuples:
+            if 'mobile_element_type' not in feature.qualifiers:
+                continue
+            me_type = feature.qualifiers['mobile_element_type'][0]
+            me_type = me_type.replace(' ', '_')
+            if me_type not in me_sequences:
+                me_sequences[me_type] = seq
+
+    with open(output_fasta_path, 'w') as fh:
+        for me_type, seq in me_sequences.items():
+            fh.write('>ME_%s\n' % me_type)
+            fh.write(str(seq))
+            fh.write('\n')
+
+        if also_inversions:
+            for me_type, seq in me_sequences.items():
+                fh.write('>ME_REVERSE_%s\n' % me_type)
+                fh.write(str(seq)[::-1])
+                fh.write('\n')
+
+    fh.close()
 
 
 def graph_contig_placement(contig_list, skip_extracted_read_alignment,
@@ -55,6 +104,32 @@ def graph_contig_placement(contig_list, skip_extracted_read_alignment,
         subprocess.check_call(' '.join(['cat'] + contig_fastas),
                 shell=True, executable=settings.BASH_PATH, stdout=fh)
 
+    # Write mobile elements to file
+    ref_genome = sample_alignment.alignment_group.reference_genome
+    genbank_query = ref_genome.dataset_set.filter(
+            type=Dataset.TYPE.REFERENCE_GENOME_GENBANK)
+
+    use_me_alignment = bool(genbank_query.count())
+    if use_me_alignment:
+        genbank_path = genbank_query[0].get_absolute_location()
+        me_concat_fasta = os.path.join(contig_alignment_dir, 'me_concat.fa')
+        write_me_features_multifasta(genbank_path, me_concat_fasta)
+        add_dataset_to_entity(
+                sample_alignment,
+                Dataset.TYPE.MOBILE_ELEMENT_FASTA,
+                Dataset.TYPE.MOBILE_ELEMENT_FASTA,
+                me_concat_fasta)
+
+        contig_alignment_to_me_bam = os.path.join(
+                contig_alignment_dir, 'contig_alignment_to_me.bam')
+        ensure_bwa_index(me_concat_fasta)
+        import ipdb
+        ipdb.set_trace()
+        simple_align_with_bwa_mem(
+                contig_concat,
+                me_concat_fasta,
+                contig_alignment_to_me_bam)
+
     # Align concatenated contig fastas to reference
     ref_genome = contig_list[0].parent_reference_genome
     contig_alignment_bam = os.path.join(
@@ -75,6 +150,20 @@ def graph_contig_placement(contig_list, skip_extracted_read_alignment,
     G.ref_intervals = ref_intervals
 
     add_alignment_to_graph(G, contig_alignment_bam)
+    if use_me_alignment:
+        add_me_alignment_to_graph(G, contig_alignment_to_me_bam)
+
+    # Add SEQUENCE_GRAPH_PICKLE dataset to ref genome
+    graph_pickle_path = os.path.join(
+            ref_genome.get_model_data_dir(),
+            'sequence_graph.pickle')
+    nx.write_gpickle(G, graph_pickle_path)
+    add_dataset_to_entity(
+            sample_alignment,
+            Dataset.TYPE.SEQUENCE_GRAPH_PICKLE,
+            Dataset.TYPE.SEQUENCE_GRAPH_PICKLE,
+            graph_pickle_path)
+
     detect_strand_chromosome_junctions(contig_list, contig_alignment_bam)
 
     # Create dictionaries to translate contig uid to its fasta descriptor line
@@ -121,14 +210,20 @@ def graph_contig_placement(contig_list, skip_extracted_read_alignment,
             placeable_contigs.append(contig)
 
     # Perform translocation walk
-    if ref_genome.num_chromosomes == 1:
+    if ref_genome.num_chromosomes == 1: 
 
         trans_iv_pairs = translocation_walk(G)
-        var_dict_list = [parse_path_into_ref_alt(iv_pair, contig_qname_to_uid)
+        var_dict_list = [parse_path_into_ref_alt(iv_pair, contig_qname_to_uid,
+                sample_alignment)
                 for iv_pair in trans_iv_pairs]
     else:
         print 'Translocation walk not implemented for multi-chromosomal refs'
         var_dict_list = []
+
+    import ipdb
+    ipdb.set_trace()
+
+    print 'len(trans_iv_pairs):', len(trans_iv_pairs)
 
     return placeable_contigs, var_dict_list
 
@@ -143,6 +238,75 @@ def avg_coverage(bam, chromosome, start, end):
             range(4)])) / (end - start)
 
     return avg_coverage
+
+
+def add_me_alignment_to_graph(G, contig_alignment_bam):
+
+    contigs_intervals = G.contig_intervals_list
+    me_interval_dict = {}
+
+    contig_alignmentfile = pysam.AlignmentFile(contig_alignment_bam)
+    for me_ref_name, me_len in zip(
+            contig_alignmentfile.references, contig_alignmentfile.lengths):
+        # Create sequence interval instances for each ME
+        me_interval_dict[me_ref_name] = SequenceIntervals(
+                me_ref_name, me_len)
+
+    # Iterate over aligned contig 'reads' in contig alignment to ref bam
+    for read in contig_alignmentfile:
+
+        contig_intervals = contigs_intervals[read.qname]
+
+        match_regions = get_match_regions(read)
+        for match_region in match_regions:
+            if match_region.read_start != 0:
+                # Insert break into sequence intervals for ref and contig
+                ref_name = contig_alignmentfile.getrname(read.reference_id)
+                me_seq_intervals = me_interval_dict[ref_name]
+                me_vert = me_seq_intervals.insert_vertex(
+                        match_region.ref_start)
+                contig_vert = contig_intervals.insert_vertex(
+                        match_region.read_start)
+
+                # Add an edge to G for the junction
+                G.add_edge(contig_vert, me_vert, weight=match_region.length)
+                G.add_edge(me_vert, contig_vert, weight=match_region.length)
+                print 'adding edge\n\tfrom:%s\n\tto:%s' % (contig_vert, me_vert)
+
+            if match_region.read_end != contig_intervals.length:
+                # Insert break into sequence intervals for ref and contig
+                ref_name = contig_alignmentfile.getrname(read.reference_id)
+                me_seq_intervals = me_interval_dict[ref_name]
+                me_vert = me_seq_intervals.insert_vertex(
+                        match_region.ref_end)
+                contig_vert = contig_intervals.insert_vertex(
+                        match_region.read_end)
+
+
+                # See if the reads indicate that the exit into the IS element from the ref comes before the entrance in the ref
+                # You'll need to go on AWS to do it
+
+                # Add an edge to G for the junction
+                G.add_edge(me_vert, contig_vert, weight=match_region.length)
+                G.add_edge(contig_vert, me_vert, weight=match_region.length)
+                print 'adding edge\n\tfrom:%s\n\tto:%s' % (me_vert, contig_vert)
+
+    # Add inter-contig sequence edges
+    for contig_intervals in (contigs_intervals.values() +
+            me_interval_dict.values()):
+        previous_vertex = contig_intervals.vertices[0]
+        for vertex in contig_intervals.vertices[1:]:
+            G.add_edge(previous_vertex, vertex)
+            previous_vertex = vertex
+
+    # Add back edges in contigs
+    for contig_intervals in contigs_intervals.values():
+        previous_vertex = contig_intervals.vertices[0]
+        for vertex in contig_intervals.vertices[1:]:
+            G.add_edge(vertex, previous_vertex)
+            previous_vertex = vertex
+
+    G.me_interval_dict = me_interval_dict
 
 
 def add_alignment_to_graph(G, contig_alignment_bam):
@@ -161,6 +325,9 @@ def add_alignment_to_graph(G, contig_alignment_bam):
 
         contigs_intervals[read.qname] = SequenceIntervals(
                 read.qname, read.query_length)
+
+        if read.qname == 'NODE_2_length_478_cov_15.104603_253':
+            node_2_si = contigs_intervals[read.qname]
 
     # Iterate over aligned contig 'reads' in contig alignment to ref bam
     contig_alignmentfile = pysam.AlignmentFile(contig_alignment_bam)
@@ -203,6 +370,10 @@ def add_alignment_to_graph(G, contig_alignment_bam):
         for vertex in contig_intervals.vertices[1:]:
             G.add_edge(vertex, previous_vertex)
             previous_vertex = vertex
+
+    for e in G.edges():
+        if e[0].pos == e[1].pos:
+            raise Exception('Why??')
 
     # G.ref_intervals = ref_intervals
     G.contig_intervals_list = contigs_intervals
@@ -287,12 +458,15 @@ def set_contig_placement_params(contig, insertion_vertices):
 
 def novel_seq_ins_walk(G):
     ref_seq_uid = G.ref_intervals.vertices[0].seq_uid
+    contig_seq_uid_set = set(ci.seq_uid for ci in
+            G.contig_intervals_list.values())
 
     def ref_neighbors(vert):
         return [v for v in G.neighbors(vert) if v.seq_uid == ref_seq_uid]
 
     def contig_neighbors(vert):
-        return [v for v in G.neighbors(vert) if v.seq_uid != ref_seq_uid]
+        return [v for v in G.neighbors(vert) if
+                v.seq_uid in contig_seq_uid_set]
 
     iv_list = []
     for exit_ref in G.ref_intervals.vertices:
@@ -311,35 +485,77 @@ def novel_seq_ins_walk(G):
                                 enter_ref))
                         break
                 visited.append(exit_contig)
-                queue.extend([n for n in contig_neighbors(exit_contig)
-                        if n not in visited])
+
+                extend_items = []
+                for n in contig_neighbors(exit_contig):
+                    if n not in visited:
+                        extend_items.append(n)
+
+                queue.extend(extend_items)
+
+                # queue.extend([n for n in contig_neighbors(exit_contig)
+                #         if n not in visited])
+
+                # queue.extend(filter(
+                #         lambda x: x not in visited,
+                #         contig_neighbors(exit_contig)))
 
     return iv_list
 
 
 def translocation_walk(G):
-    ref_seq_uid = G.ref_intervals.vertices[0].seq_uid
+
+    ref_seq_uid_set = set([G.ref_intervals.seq_uid])
+    # Add any me
+    use_me_alignment = hasattr(G, 'me_interval_dict')
+
+    if use_me_alignment:
+        me_seq_uid_set = set(si.seq_uid for si in G.me_interval_dict.values())
+        ref_seq_uid_set = ref_seq_uid_set | me_seq_uid_set
+
+    contig_seq_uid_set = set(ci.seq_uid for ci in
+            G.contig_intervals_list.values())
 
     def ref_neighbors(vert):
-        return [v for v in G.neighbors(vert) if v.seq_uid == ref_seq_uid]
+        return [v for v in G.neighbors(vert) if v.seq_uid in ref_seq_uid_set]
 
     def contig_neighbors(vert):
-        return [v for v in G.neighbors(vert) if v.seq_uid != ref_seq_uid]
+        return [v for v in G.neighbors(vert) if v.seq_uid in
+                contig_seq_uid_set]
 
     forward_edges = []
     back_edges = []
 
-    for exit_ref in G.ref_intervals.vertices:
+    me_vertices = reduce(lambda x, y: x + y,
+        [si.vertices for si in G.me_interval_dict.values()])
+
+    dset = set()
+    for exit_ref in G.ref_intervals.vertices + me_vertices:
+        # print exit_ref
         for enter_contig in contig_neighbors(exit_ref):
-            queue = [enter_contig]
+            # print '\t%s' % enter_contig
+            queue = set([enter_contig])
             visited = []
             while queue:
+                # print 'queue pre -pop:', queue
                 exit_contig = queue.pop()
+                # print 'queue post-pop:', queue
+                # print '\t\t%s' % exit_contig
                 for enter_ref in ref_neighbors(exit_contig):
+                    # print '\t\t\t%s' % enter_ref
 
                     iv = InsertionVertices(
                             exit_ref, enter_contig, exit_contig,
                             enter_ref)
+
+                    print "%s\n%s\n%s\n%s\n\n" % iv
+
+                    if iv in dset:
+                        print 'Shouldn"t happen!'
+                        import ipdb
+                        ipdb.set_trace()
+
+                    dset.add(iv)
 
                     if exit_ref.pos < enter_ref.pos:
                         forward_edges.append(iv)
@@ -347,7 +563,11 @@ def translocation_walk(G):
                         back_edges.append(iv)
 
                 visited.append(exit_contig)
-                queue.extend([n for n in contig_neighbors(exit_contig)
+                # print 'queue:', [v.pos for v in queue]
+                # print 'visited:', [v.pos for v in visited]
+                # print 'extended to queue:', [n.pos for n in contig_neighbors(exit_contig)
+                #         if n not in visited]
+                queue.update([n for n in contig_neighbors(exit_contig)
                         if n not in visited])
 
     sorted_by_exit_ref = sorted(forward_edges + back_edges,
@@ -356,11 +576,17 @@ def translocation_walk(G):
     sorted_by_enter_ref = sorted(forward_edges + back_edges,
             key=lambda x: x.enter_ref.pos)
 
+    import ipdb
+    ipdb.set_trace()
+
     iv_pairs = []
+    me_iv_pairs = []
     i = 0
+    OVERLAP_TOLERANCE = 400
     for enter_iv in sorted_by_exit_ref:
-        while (sorted_by_enter_ref[i].enter_ref.pos < enter_iv.exit_ref.pos and
-                i < len(sorted_by_enter_ref) -1):
+        while (sorted_by_enter_ref[i].enter_ref.pos <
+                enter_iv.exit_ref.pos - OVERLAP_TOLERANCE and
+                i < len(sorted_by_enter_ref) - 1):
             i += 1
 
         j = i
@@ -369,7 +595,14 @@ def translocation_walk(G):
         while -MAX_DUP < deletion < MAX_TRANS_DELETION:
 
             trans_length = exit_iv.exit_ref.pos - enter_iv.enter_ref.pos
-            if MIN_TRANS_LENGTH < trans_length < MAX_TRANS_LENGTH:
+
+            # MIN_TRANS_LENGTH < abs(trans_length) < MAX_TRANS_LENGTH and
+            if (use_me_alignment and
+                any(v.seq_uid in me_seq_uid_set for v in
+                    [exit_iv.exit_ref, exit_iv.enter_ref,
+                    enter_iv.exit_ref, enter_iv.enter_ref])):
+                me_iv_pairs.append((enter_iv, exit_iv))
+            elif (MIN_TRANS_LENGTH < abs(trans_length) < MAX_TRANS_LENGTH):
                 iv_pairs.append((enter_iv, exit_iv))
 
             if j == len(sorted_by_enter_ref) - 1:
@@ -378,6 +611,22 @@ def translocation_walk(G):
             j += 1
             exit_iv = sorted_by_enter_ref[j]
             deletion = exit_iv.enter_ref.pos - enter_iv.exit_ref.pos
+
+    me_iv_pairs = filter(
+            lambda x: (
+                    x[0].exit_ref.seq_uid == G.ref_intervals.seq_uid and
+                    x[1].enter_ref.seq_uid == G.ref_intervals.seq_uid),
+            me_iv_pairs)
+
+    for enter_iv, exit_iv in me_iv_pairs:
+        print 'enter_iv:', enter_iv
+        print 'exit_iv:', exit_iv
+
+    print 'len(me_iv_pairs):', len(me_iv_pairs)
+    print 'len(iv_pairs):', len(iv_pairs)
+
+    if me_iv_pairs:
+        iv_pairs.extend(me_iv_pairs)
 
     return iv_pairs
 
@@ -398,9 +647,9 @@ class SequenceVertex:
 
     def __cmp__(self, rhs):
         if not isinstance(rhs, SequenceVertex):
-            return TypeError
+            raise TypeError
         if rhs.seq_uid != self.seq_uid:
-            return ValueError
+            raise ValueError
 
         if self.pos < rhs.pos:
             return -1
@@ -485,9 +734,9 @@ def get_match_regions(read):
 
     if matching:
         match_regions.append(MatchRegion(
-                    match_ref_start, ref_pos,
-                    match_read_start, read_pos,
-                    matching_length))
+                match_ref_start, ref_pos,
+                match_read_start, read_pos,
+                matching_length))
 
     return match_regions
 
@@ -506,10 +755,15 @@ def make_contig_reads_to_ref_alignments(contig):
     # Add bam track
     add_contig_reads_bam_track(contig, Dataset.TYPE.BWA_SV_INDICANTS)
 
-def parse_path_into_ref_alt(path_list, contig_qname_to_uid):
 
-    ref_uid = path_list[0].exit_ref.seq_uid
-    ref_genome = ReferenceGenome.objects.get(uid=ref_uid)
+def parse_path_into_ref_alt(path_list, contig_qname_to_uid,
+        sample_alignment):
+
+    # import ipdb
+    # ipdb.set_trace()
+
+    ref_genome = sample_alignment.alignment_group.reference_genome
+    ref_uid = ref_genome.uid
     ref_fasta = get_fasta(ref_genome)
     with open(ref_fasta) as fh:
         ref_seqrecord = SeqIO.parse(fh, 'fasta').next()
@@ -519,6 +773,20 @@ def parse_path_into_ref_alt(path_list, contig_qname_to_uid):
     def _seq_str(enter_vert, exit_vert):
         if enter_vert.seq_uid == ref_uid:
             return ref_seq[enter_vert.pos: exit_vert.pos]
+
+        if enter_vert.seq_uid.startswith('ME_'):
+            me_fasta = sample_alignment.dataset_set.get(
+                    type=Dataset.TYPE.MOBILE_ELEMENT_FASTA
+                    ).get_absolute_location()
+
+            seq_rec = (sr for sr in SeqIO.parse(me_fasta, 'fasta')
+                    if sr.id == enter_vert.seq_uid).next()
+
+            if enter_vert.pos < exit_vert.pos:
+                return str(seq_rec.seq[enter_vert.pos: exit_vert.pos])
+            else:
+                return str(seq_rec.seq[exit_vert.pos: enter_vert.pos: -1])
+
 
         contig_qname = enter_vert.seq_uid
         contig_uid = contig_qname_to_uid[contig_qname]

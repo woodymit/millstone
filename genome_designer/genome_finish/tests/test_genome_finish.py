@@ -2,6 +2,7 @@
 Tests for genome finishing features
 """
 import os
+import re
 
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -233,14 +234,19 @@ class TestGraphWalk(TestCase):
 
         ref_fasta = os.path.join(test_dir, 'ref.fa')
         target_fasta = os.path.join(test_dir, 'target.fa')
-        contig_fasta_list = []
-        i = 0
-        contig_fasta_path = os.path.join(test_dir, 'contig_' + str(i) + '.fa')
-        while os.path.exists(contig_fasta_path):
-            contig_fasta_list.append(contig_fasta_path)
-            i += 1
-            contig_fasta_path = os.path.join(test_dir,
-                    'contig_' + str(i) + '.fa')
+        # contig_fasta_list = []
+        # i = 0
+        # contig_fasta_path = os.path.join(test_dir, 'contig_' + str(i) + '.fa')
+        # while os.path.exists(contig_fasta_path):
+        #     contig_fasta_list.append(contig_fasta_path)
+        #     i += 1
+        #     contig_fasta_path = os.path.join(test_dir,
+        #             'contig_' + str(i) + '.fa')
+        contig_fasta_list = filter(
+                lambda x: re.match(r'contig_\d+\.fa', x),
+                os.listdir(test_dir))
+        contig_fasta_list = [os.path.join(test_dir, filename) for
+                filename in contig_fasta_list]
 
         dummy_models = self._make_dummy_models()
         reference_genome = dummy_models['reference_genome']
@@ -248,10 +254,19 @@ class TestGraphWalk(TestCase):
         alignment_group = dummy_models['alignment_group']
 
         add_dataset_to_entity(
+                    reference_genome,
+                    Dataset.TYPE.REFERENCE_GENOME_FASTA,
+                    Dataset.TYPE.REFERENCE_GENOME_FASTA,
+                    filesystem_location=ref_fasta)
+
+
+        ref_genbank = os.path.join(test_dir, 'ref.gb')
+        if os.path.exists(ref_genbank):
+            add_dataset_to_entity(
                 reference_genome,
-                Dataset.TYPE.REFERENCE_GENOME_FASTA,
-                Dataset.TYPE.REFERENCE_GENOME_FASTA,
-                filesystem_location=ref_fasta)
+                Dataset.TYPE.REFERENCE_GENOME_GENBANK,
+                Dataset.TYPE.REFERENCE_GENOME_GENBANK,
+                ref_genbank)
 
         # Make data_dir directory to house genome_finishing files
         assembly_dir = os.path.join(
@@ -316,4 +331,9 @@ class TestGraphWalk(TestCase):
     def test_homology_flanked_deletion(self):
         test_dir = os.path.join(GF_TEST_DIR, 'random_seq_data',
                 'homology_flanked_deletion')
+        self._run_contig_walk_test(test_dir)
+
+    def test_is_element(self):
+        test_dir = os.path.join(GF_TEST_DIR, 'tenaillon',
+                'Line20')
         self._run_contig_walk_test(test_dir)

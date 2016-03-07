@@ -130,6 +130,8 @@ class Dataset(UniqueUidModelMixin):
         LUMPY_INSERT_METRICS_MEAN_STDEV = 'Lumpy Insert Metrics Mean Stdev'
         FASTQC1_HTML = 'FASTQC Forward HTML Output'
         FASTQC2_HTML = 'FASTQC Reverse HTML Output'
+        SEQUENCE_GRAPH_PICKLE = 'Pickled NetworkX Sequence Graph'
+        MOBILE_ELEMENT_FASTA = 'Mobile Element Fasta'
 
     TYPE_CHOICES = make_choices_tuple(TYPE)
     type = models.CharField(max_length=40, choices=TYPE_CHOICES)
