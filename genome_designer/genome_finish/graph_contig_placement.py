@@ -321,9 +321,6 @@ def add_alignment_to_graph(G, contig_alignment_bam):
         contigs_intervals[read.qname] = SequenceIntervals(
                 read.qname, read.query_length)
 
-        if read.qname == 'NODE_2_length_478_cov_15.104603_253':
-            node_2_si = contigs_intervals[read.qname]
-
     # Iterate over aligned contig 'reads' in contig alignment to ref bam
     contig_alignmentfile = pysam.AlignmentFile(contig_alignment_bam)
     for read in contig_alignmentfile:
@@ -363,10 +360,6 @@ def add_alignment_to_graph(G, contig_alignment_bam):
         for vertex in contig_intervals.vertices[1:]:
             G.add_edge(vertex, previous_vertex)
             previous_vertex = vertex
-
-    for e in G.edges():
-        if e[0].pos == e[1].pos:
-            raise Exception('Why??')
 
     # G.ref_intervals = ref_intervals
     G.contig_intervals_list = contigs_intervals

@@ -236,14 +236,7 @@ class TestGraphWalk(TestCase):
 
         ref_fasta = os.path.join(test_dir, 'ref.fa')
         self.target_fasta = os.path.join(test_dir, 'target.fa')
-        # contig_fasta_list = []
-        # i = 0
-        # contig_fasta_path = os.path.join(test_dir, 'contig_' + str(i) + '.fa')
-        # while os.path.exists(contig_fasta_path):
-        #     contig_fasta_list.append(contig_fasta_path)
-        #     i += 1
-        #     contig_fasta_path = os.path.join(test_dir,
-        #             'contig_' + str(i) + '.fa')
+
         contig_fasta_list = filter(
                 lambda x: re.match(r'contig_\d+\.fa', x),
                 os.listdir(test_dir))
