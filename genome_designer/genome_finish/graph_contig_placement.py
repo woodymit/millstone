@@ -577,7 +577,7 @@ def translocation_walk(G):
                     [exit_iv.exit_ref, exit_iv.enter_ref,
                     enter_iv.exit_ref, enter_iv.enter_ref])):
                 me_iv_pairs.append((enter_iv, exit_iv))
-            elif (MIN_TRANS_LENGTH < abs(trans_length) < MAX_TRANS_LENGTH):
+            elif (MIN_TRANS_LENGTH < trans_length < MAX_TRANS_LENGTH):
                 iv_pairs.append((enter_iv, exit_iv))
 
             if j == len(sorted_by_enter_ref) - 1:
