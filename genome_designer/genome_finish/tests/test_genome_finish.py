@@ -20,11 +20,13 @@ from main.models import ExperimentSample
 from main.models import ExperimentSampleToAlignment
 from main.models import Project
 from main.models import ReferenceGenome
+from main.models import VariantSet
 from main.testing_util import are_fastas_same
 from pipeline.pipeline_runner import run_pipeline
 from utils.import_util import add_dataset_to_entity
 from utils.import_util import import_reference_genome_from_local_file
 from utils.reference_genome_maker_util import generate_new_reference_genome
+from variants.variant_sets import update_variant_in_set_memberships
 
 TEST_USERNAME = 'testuser'
 TEST_PASSWORD = 'password'
@@ -305,26 +307,74 @@ class TestGraphWalk(TestCase):
         variant_set = create_de_novo_variants_set(
                 alignment_group, 'de_novo_variants')
 
-        import ipdb
-        ipdb.set_trace()
+        for v in variant_set.variants.all():
+            alts = v.get_alternates()
+            assert len(alts) == 1
+            alt = alts[0]
+            print '\npos:%s\nref: %dbp :%s\nalt: %dbp :%s\n' % (
+                    v.position,
+                    len(v.ref_value), v.ref_value,
+                    len(alt), alt)
 
         self.assertTrue(variant_set.variants.exists())
-        self.assertEqual(len(variant_set.variants.all()), 1)
+        # self.assertEqual(len(variant_set.variants.all()), 1)
+        if len(variant_set.variants.all()) == 1:
+            # Make new reference genome
+            new_ref_genome_params = {'label': 'new_ref'}
+            new_ref_genome = generate_new_reference_genome(
+                    variant_set, new_ref_genome_params)
 
-        # Make new reference genome
-        new_ref_genome_params = {'label': 'new_ref'}
-        new_ref_genome = generate_new_reference_genome(
-                variant_set, new_ref_genome_params)
+            # Verify insertion was placed correctly
+            new_ref_genome_fasta = get_dataset_with_type(
+                    new_ref_genome, Dataset.TYPE.REFERENCE_GENOME_FASTA
+                    ).get_absolute_location()
 
-        # Verify insertion was placed correctly
-        new_ref_genome_fasta = get_dataset_with_type(
-                new_ref_genome, Dataset.TYPE.REFERENCE_GENOME_FASTA
-                ).get_absolute_location()
+            fastas_same, indexes = are_fastas_same(
+                    target_fasta, new_ref_genome_fasta)
 
-        fastas_same, indexes = are_fastas_same(
-                target_fasta, new_ref_genome_fasta)
+            self.assertTrue(fastas_same)
 
-        self.assertTrue(fastas_same)
+        else:
+            print 'Multiple variants'
+            incorrect_variants = []
+            for i, v in enumerate(variant_set.variants.all()):
+
+                # Make Variant set for single variant
+                variant_set = VariantSet.objects.create(
+                        reference_genome=reference_genome,
+                        label='multiple_variant_%d' % i)
+
+                update_variant_in_set_memberships(
+                    reference_genome,
+                    [v.uid],
+                    'add',
+                    variant_set.uid)
+
+                new_ref_genome_params = {'label': 'new_ref'}
+
+                new_ref_genome = generate_new_reference_genome(
+                        variant_set, new_ref_genome_params)
+
+                # Verify insertion was placed correctly
+                new_ref_genome_fasta = get_dataset_with_type(
+                        new_ref_genome, Dataset.TYPE.REFERENCE_GENOME_FASTA
+                        ).get_absolute_location()
+
+                fastas_same, indexes = are_fastas_same(
+                        target_fasta, new_ref_genome_fasta)
+
+                if not fastas_same:
+                    incorrect_variants.append((i, v))
+
+            if incorrect_variants:
+                print 'Variant %d/%d was incorrect' * len(
+                        incorrect_variants) * tuple(zip(
+                                [t[0] for t in incorrect_variants],
+                                len(incorrect_variants) *
+                                len(variant_set.variants.all())))
+            self.assertTrue(not incorrect_variants, '%d incorrect variants' % (
+                    len(incorrect_variants) /
+                    len(variant_set.variants.all())))
 
     def test_deletion(self):
         test_dir = os.path.join(GF_TEST_DIR, 'random_seq_data',

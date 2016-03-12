@@ -52,7 +52,6 @@ def write_me_features_multifasta(genbank_path, output_fasta_path,
     me_features = get_genbank_features_with_type(
             genbank_path, 'mobile_element')
     me_sequences = {}
-    # print 'me_features:', me_features
     for chrom, feature_seq_tuples in me_features.items():
         for feature, seq in feature_seq_tuples:
             if 'mobile_element_type' not in feature.qualifiers:
@@ -208,19 +207,26 @@ def graph_contig_placement(contig_list, skip_extracted_read_alignment,
             placeable_contigs.append(contig)
 
     # Perform translocation walk
-    if ref_genome.num_chromosomes == 1: 
+    if ref_genome.num_chromosomes == 1:
 
-        trans_iv_pairs = translocation_walk(G)
+        trans_dict = translocation_walk(G)
         var_dict_list = [parse_path_into_ref_alt(iv_pair, contig_qname_to_uid,
                 sample_alignment)
-                for iv_pair in trans_iv_pairs]
+                for iv_pair in trans_dict['iv_pairs']]
+        if 'me_iv_pairs' in trans_dict:
+            me_var_dict_list = [parse_path_into_ref_alt(
+                    iv_pair, contig_qname_to_uid,
+                    sample_alignment)
+                for iv_pair in trans_dict['me_iv_pairs']]
+        else:
+            me_var_dict_list = []
+
     else:
         print 'Translocation walk not implemented for multi-chromosomal refs'
         var_dict_list = []
+        me_var_dict_list = []
 
-    print 'len(trans_iv_pairs):', len(trans_iv_pairs)
-
-    return placeable_contigs, var_dict_list
+    return placeable_contigs, var_dict_list, me_var_dict_list
 
 
 def avg_coverage(bam, chromosome, start, end):
@@ -266,7 +272,6 @@ def add_me_alignment_to_graph(G, contig_alignment_bam):
                 # Add an edge to G for the junction
                 G.add_edge(contig_vert, me_vert, weight=match_region.length)
                 G.add_edge(me_vert, contig_vert, weight=match_region.length)
-                print 'adding edge\n\tfrom:%s\n\tto:%s' % (contig_vert, me_vert)
 
             if match_region.read_end != contig_intervals.length:
                 # Insert break into sequence intervals for ref and contig
@@ -277,14 +282,9 @@ def add_me_alignment_to_graph(G, contig_alignment_bam):
                 contig_vert = contig_intervals.insert_vertex(
                         match_region.read_end)
 
-
-                # See if the reads indicate that the exit into the IS element from the ref comes before the entrance in the ref
-                # You'll need to go on AWS to do it
-
                 # Add an edge to G for the junction
                 G.add_edge(me_vert, contig_vert, weight=match_region.length)
                 G.add_edge(contig_vert, me_vert, weight=match_region.length)
-                print 'adding edge\n\tfrom:%s\n\tto:%s' % (me_vert, contig_vert)
 
     # Add inter-contig sequence edges
     for contig_intervals in (contigs_intervals.values() +
@@ -332,8 +332,6 @@ def add_alignment_to_graph(G, contig_alignment_bam):
 
         match_regions = get_match_regions(read)
         for match_region in match_regions:
-            print match_region
-            print read.query_length
             if match_region.read_start != 0:
                 # Insert break into sequence intervals for ref and contig
                 ref_vert = ref_intervals.insert_vertex(match_region.ref_start)
@@ -521,35 +519,24 @@ def translocation_walk(G):
     forward_edges = []
     back_edges = []
 
-    me_vertices = reduce(lambda x, y: x + y,
-        [si.vertices for si in G.me_interval_dict.values()])
+    if hasattr(G, 'me_interval_dict'):
+        me_vertices = reduce(lambda x, y: x + y,
+            [si.vertices for si in G.me_interval_dict.values()])
+    else:
+        me_vertices = []
 
     dset = set()
     for exit_ref in G.ref_intervals.vertices + me_vertices:
-        # print exit_ref
         for enter_contig in contig_neighbors(exit_ref):
-            # print '\t%s' % enter_contig
             queue = set([enter_contig])
             visited = []
             while queue:
-                # print 'queue pre -pop:', queue
                 exit_contig = queue.pop()
-                # print 'queue post-pop:', queue
-                # print '\t\t%s' % exit_contig
                 for enter_ref in ref_neighbors(exit_contig):
-                    # print '\t\t\t%s' % enter_ref
 
                     iv = InsertionVertices(
                             exit_ref, enter_contig, exit_contig,
                             enter_ref)
-
-                    print "%s\n%s\n%s\n%s\n\n" % iv
-
-                    if iv in dset:
-                        print 'Shouldn"t happen!'
-                        import ipdb
-                        ipdb.set_trace()
-
                     dset.add(iv)
 
                     if exit_ref.pos < enter_ref.pos:
@@ -558,10 +545,6 @@ def translocation_walk(G):
                         back_edges.append(iv)
 
                 visited.append(exit_contig)
-                # print 'queue:', [v.pos for v in queue]
-                # print 'visited:', [v.pos for v in visited]
-                # print 'extended to queue:', [n.pos for n in contig_neighbors(exit_contig)
-                #         if n not in visited]
                 queue.update([n for n in contig_neighbors(exit_contig)
                         if n not in visited])
 
@@ -610,17 +593,11 @@ def translocation_walk(G):
                     x[1].enter_ref.seq_uid == G.ref_intervals.seq_uid),
             me_iv_pairs)
 
-    for enter_iv, exit_iv in me_iv_pairs:
-        print 'enter_iv:', enter_iv
-        print 'exit_iv:', exit_iv
-
-    print 'len(me_iv_pairs):', len(me_iv_pairs)
-    print 'len(iv_pairs):', len(iv_pairs)
-
+    out_dict = {'iv_pairs': iv_pairs}
     if me_iv_pairs:
-        iv_pairs.extend(me_iv_pairs)
+        out_dict['me_iv_pairs'] = me_iv_pairs
 
-    return iv_pairs
+    return out_dict
 
 
 class SequenceVertex:
@@ -693,7 +670,6 @@ def get_match_regions(read):
     MatchRegion = namedtuple('MatchRegion',
             ['ref_start', 'ref_end', 'read_start', 'read_end', 'length'])
     match_regions = []
-    print read.cigarstring
     for code, length in read.cigartuples:
         cigar = cigar_codes.get(code, None)
         if cigar is None:
@@ -760,13 +736,10 @@ def parse_path_into_ref_alt(path_list, contig_qname_to_uid,
         ref_chromosome = ref_seqrecord.id
 
     def _seq_str(enter_vert, exit_vert):
-        print 'seq_str called'
         if enter_vert.seq_uid == ref_uid:
-            print 'seq_str returned ref sequence'
             return ref_seq[enter_vert.pos: exit_vert.pos]
 
         if enter_vert.seq_uid.startswith('ME_'):
-            print 'seq_str should return ME sequence'
             me_fasta = sample_alignment.dataset_set.get(
                     type=Dataset.TYPE.MOBILE_ELEMENT_FASTA
                     ).get_absolute_location()
@@ -775,14 +748,11 @@ def parse_path_into_ref_alt(path_list, contig_qname_to_uid,
                     if sr.id == enter_vert.seq_uid).next()
 
             if enter_vert.pos < exit_vert.pos:
-                print 'ME seq str:', str(seq_rec.seq[enter_vert.pos: exit_vert.pos])
                 return str(seq_rec.seq[enter_vert.pos: exit_vert.pos])
             else:
-                print 'ME seq str REVERSE:', str(seq_rec.seq[enter_vert.pos: exit_vert.pos: -1])
-                return str(seq_rec.seq[enter_vert.pos: exit_vert.pos: -1])
+                return str(seq_rec.seq[
+                        exit_vert.pos: enter_vert.pos].reverse_complement())
 
-
-        print 'seq_str should return contig sequence'
         contig_qname = enter_vert.seq_uid
         contig_uid = contig_qname_to_uid[contig_qname]
         contig = Contig.objects.get(uid=contig_uid)
@@ -802,6 +772,7 @@ def parse_path_into_ref_alt(path_list, contig_qname_to_uid,
                     enter_vert.pos:exit_vert.pos])
 
     path_list_concat = reduce(lambda x, y: x + y, path_list)
+
     def _seq_interval_iter():
         i = 1
         while i <= len(path_list_concat) - 3:
@@ -844,13 +815,6 @@ def parse_path_into_ref_alt(path_list, contig_qname_to_uid,
                 alt_seq += seq
 
     ref_seq = ref_seq[ref_start: ref_end]
-
-    print 'parsed variant:', {
-        'chromosome': ref_chromosome,
-        'pos': ref_start,
-        'ref_seq': ref_seq,
-        'alt_seq': alt_seq
-    }
 
     return {
         'chromosome': ref_chromosome,
