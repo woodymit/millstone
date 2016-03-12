@@ -212,13 +212,13 @@ class TestGraphWalk(TestCase):
 
     def _make_dummy_models(self):
 
-        reference_genome = ReferenceGenome.objects.create(
+        self.reference_genome = ReferenceGenome.objects.create(
                 project=self.project,
                 label='test_reference_genome')
 
 
         alignment_group = AlignmentGroup.objects.create(
-                reference_genome=reference_genome)
+                reference_genome=self.reference_genome)
 
         sample = ExperimentSample.objects.create(
                 project=self.project,
@@ -229,13 +229,13 @@ class TestGraphWalk(TestCase):
                 experiment_sample=sample)
 
         return {'sample_alignment': sample_alignment,
-                'reference_genome': reference_genome,
+                'reference_genome': self.reference_genome,
                 'alignment_group': alignment_group}
 
     def _run_contig_walk_test(self, test_dir):
 
         ref_fasta = os.path.join(test_dir, 'ref.fa')
-        target_fasta = os.path.join(test_dir, 'target.fa')
+        self.target_fasta = os.path.join(test_dir, 'target.fa')
         # contig_fasta_list = []
         # i = 0
         # contig_fasta_path = os.path.join(test_dir, 'contig_' + str(i) + '.fa')
@@ -316,8 +316,12 @@ class TestGraphWalk(TestCase):
                     len(v.ref_value), v.ref_value,
                     len(alt), alt)
 
+        return variant_set
+
+    def _assert_variants_make_target(self, variant_set):
         self.assertTrue(variant_set.variants.exists())
         # self.assertEqual(len(variant_set.variants.all()), 1)
+
         if len(variant_set.variants.all()) == 1:
             # Make new reference genome
             new_ref_genome_params = {'label': 'new_ref'}
@@ -330,7 +334,7 @@ class TestGraphWalk(TestCase):
                     ).get_absolute_location()
 
             fastas_same, indexes = are_fastas_same(
-                    target_fasta, new_ref_genome_fasta)
+                    self.target_fasta, new_ref_genome_fasta)
 
             self.assertTrue(fastas_same)
 
@@ -341,11 +345,11 @@ class TestGraphWalk(TestCase):
 
                 # Make Variant set for single variant
                 variant_set = VariantSet.objects.create(
-                        reference_genome=reference_genome,
+                        reference_genome=self.reference_genome,
                         label='multiple_variant_%d' % i)
 
                 update_variant_in_set_memberships(
-                    reference_genome,
+                    self.reference_genome,
                     [v.uid],
                     'add',
                     variant_set.uid)
@@ -361,7 +365,7 @@ class TestGraphWalk(TestCase):
                         ).get_absolute_location()
 
                 fastas_same, indexes = are_fastas_same(
-                        target_fasta, new_ref_genome_fasta)
+                        self.target_fasta, new_ref_genome_fasta)
 
                 if not fastas_same:
                     incorrect_variants.append((i, v))
@@ -379,14 +383,32 @@ class TestGraphWalk(TestCase):
     def test_deletion(self):
         test_dir = os.path.join(GF_TEST_DIR, 'random_seq_data',
                 'deletion')
-        self._run_contig_walk_test(test_dir)
+        variant_set = self._run_contig_walk_test(test_dir)
+        self._assert_variants_make_target(variant_set)
 
     def test_homology_flanked_deletion(self):
         test_dir = os.path.join(GF_TEST_DIR, 'random_seq_data',
                 'homology_flanked_deletion')
-        self._run_contig_walk_test(test_dir)
+        variant_set = self._run_contig_walk_test(test_dir)
+        self._assert_variants_make_target(variant_set)
 
     def test_is_element(self):
         test_dir = os.path.join(GF_TEST_DIR, 'tenaillon',
                 'Line20')
-        self._run_contig_walk_test(test_dir)
+        variant_set = self._run_contig_walk_test(test_dir)
+
+        me_variants = []
+        for variant in variant_set.variants.all():
+            for vccd in variant.variantcallercommondata_set.all():
+                if vccd.data.get('INFO_METHOD', None) == 'ME_GRAPH_WALK':
+                    me_variants.append(variant)
+
+        self.assertTrue(me_variants)
+        import ipdb
+        ipdb.set_trace()
+        for variant in me_variants:
+            self.assertTrue(1305000 < variant.position < 1306000)
+            alts = variant.get_alternates()
+            self.assertTrue(len(alts) == 1)
+            alt = alts[0]
+            self.assertTrue(1000 < len(alt) < 2000)
