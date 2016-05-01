@@ -578,6 +578,85 @@ def assemble_with_velvet(data_dir, velvet_opts, sv_indicants_bam,
     return contig_files
 
 
+def slice_me_up_some_fresh_contigs(sample_alignment):
+
+    # Delete previous contigs
+    for contig in sample_alignment.contig_set.all():
+        contig.delete()
+
+
+    timestamp = str(datetime.datetime.now())
+    contig_number_pattern = re.compile('^NODE_(\d+)_')
+
+    # Make data_dir directory to house genome_finishing files
+    assembly_dir = os.path.join(
+            sample_alignment.get_model_data_dir(),
+            'assembly')
+
+    assert os.path.exists(assembly_dir)
+
+    data_dir_counter = 0
+    data_dir = os.path.join(assembly_dir, str(data_dir_counter))
+    while(os.path.exists(data_dir)):
+        data_dir_counter += 1
+        data_dir = os.path.join(assembly_dir, str(data_dir_counter))
+
+    data_dir = os.path.join(assembly_dir, str(data_dir_counter - 1))
+
+    # Collect resulting contigs fasta
+    contigs_fasta = os.path.join(data_dir, 'contigs.fa')
+
+    records = list(SeqIO.parse(contigs_fasta, 'fasta'))
+    digits = len(str(len(records))) + 1
+    i = 0
+    for seq_record in records:
+        i += 1
+
+        contig_node_number = int(
+                    contig_number_pattern.findall(
+                            seq_record.description)[0])
+
+        coverage = float(seq_record.description.rsplit('_', 1)[1])
+
+        seq_record.seq = reduce(
+                lambda x, y: x + y,
+                [seq for seq in seq_record.seq.split('N')])
+
+        leading_zeros = digits - len(str(i))
+        contig_label = '%s_%s' % (
+                sample_alignment.experiment_sample.label,
+                leading_zeros * '0' + str(i))
+
+        # Create model
+        contig = Contig.objects.create(
+                label=contig_label,
+                parent_reference_genome=(
+                        sample_alignment.alignment_group.reference_genome),
+                experiment_sample_to_alignment=(
+                        sample_alignment))
+
+        contig.metadata['coverage'] = coverage
+        contig.metadata['timestamp'] = timestamp
+        contig.metadata['node_number'] = contig_node_number
+        contig.metadata['assembly_dir'] = data_dir
+
+        contig.ensure_model_data_dir_exists()
+        dataset_path = os.path.join(contig.get_model_data_dir(),
+                'fasta.fa')
+
+        seq_record.id = seq_record.name = seq_record.description = (
+                'NODE_' + str(i))
+
+        with open(dataset_path, 'w') as fh:
+            SeqIO.write([seq_record], fh, 'fasta')
+
+        add_dataset_to_entity(
+                contig,
+                'contig_fasta',
+                Dataset.TYPE.REFERENCE_GENOME_FASTA,
+                filesystem_location=dataset_path)
+
+
 @task(ignore_result=False)
 @report_failure_stats('evaluate_contigs_failure_stats.txt')
 def evaluate_sample_alignment_contigs(sample_alignment):
